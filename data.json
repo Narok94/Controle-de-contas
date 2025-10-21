@@ -1,0 +1,15 @@
+{
+  "accounts": [
+    {
+      "id": "acc-1",
+      "name": "Energia",
+      "info": "Companhia elétrica - Vencimento 10"
+    },
+    {
+      "id": "acc-2",
+      "name": "Internet",
+      "info": "Provedor X - Vencimento 05"
+    }
+  ],
+  "payments": []
+}

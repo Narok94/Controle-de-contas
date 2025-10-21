@@ -1,0 +1,37 @@
+[
+  {
+    "timestamp": "2025-10-09T21:24:09.331726",
+    "action": "EXPORT_DATA",
+    "details": "Dados exportados"
+  },
+  {
+    "timestamp": "2025-10-09T21:26:01.875489",
+    "action": "MARK_PAID",
+    "details": "Conta paga: Cartão - R$ 2.081,70"
+  },
+  {
+    "timestamp": "2025-10-09T21:26:07.797989",
+    "action": "UNDO_PAYMENT",
+    "details": "Pagamento desfeito: Cartão"
+  },
+  {
+    "timestamp": "2025-10-09T21:51:24.165141",
+    "action": "UPDATE_SETTINGS",
+    "details": "Configurações atualizadas"
+  },
+  {
+    "timestamp": "2025-10-09T21:51:38.029698",
+    "action": "UPDATE_SETTINGS",
+    "details": "Configurações atualizadas"
+  },
+  {
+    "timestamp": "2025-10-10T14:04:23.013072",
+    "action": "EXPORT_DATA",
+    "details": "Dados exportados"
+  },
+  {
+    "timestamp": "2025-10-10T17:33:19.147644",
+    "action": "UNDO_PAYMENT",
+    "details": "Pagamento desfeito: Van"
+  }
+]

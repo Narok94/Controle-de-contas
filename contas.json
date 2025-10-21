@@ -1,0 +1,83 @@
+{
+  "contas": [
+    {
+      "id": "709d4a18-c957-455b-947c-794760c222da",
+      "name": "Cemig",
+      "amount_decimal": "200.00",
+      "amount_display": "200.00",
+      "month": "2025-10",
+      "category": "Energia",
+      "notes": "",
+      "status": "paid",
+      "paid_at": "2025-10-09T00:00:00",
+      "paid_amount": "200.00",
+      "created_at": "2025-10-09T09:17:57.583446",
+      "recorrente": true,
+      "parcelada": false,
+      "parcelas": 1,
+      "recorrencia_months": 0,
+      "rec_type": "indef"
+    },
+    {
+      "id": "c9e7e0d5-0414-4530-9182-7cef8863be7b",
+      "name": "Cemig",
+      "amount_decimal": "0.00",
+      "amount_display": "0.00",
+      "month": "2025-10",
+      "category": "Energia",
+      "notes": "",
+      "status": "pending",
+      "paid_at": null,
+      "paid_amount": null,
+      "created_at": "2025-10-09T10:01:31.932529",
+      "recorrente": true,
+      "rec_type": "indef",
+      "recorrencia_months": 0,
+      "rec_origin": "709d4a18-c957-455b-947c-794760c222da",
+      "parcelada": false,
+      "parcelas": 1
+    }
+  ],
+  "categories": [
+    {
+      "name": "Energia",
+      "icon": "📂"
+    },
+    {
+      "name": "Água",
+      "icon": "📂"
+    },
+    {
+      "name": "Internet",
+      "icon": "📂"
+    },
+    {
+      "name": "Aluguel",
+      "icon": "📂"
+    },
+    {
+      "name": "Transporte",
+      "icon": "📂"
+    },
+    {
+      "name": "Alimentação",
+      "icon": "📂"
+    },
+    {
+      "name": "Outros",
+      "icon": "📂"
+    },
+    {
+      "name": "Manuela",
+      "icon": "📂"
+    },
+    {
+      "name": "Ivone",
+      "icon": "📂"
+    },
+    {
+      "name": "Zé Carlos",
+      "icon": "📂"
+    }
+  ]
+}
