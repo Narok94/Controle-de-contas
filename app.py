@@ -9,6 +9,7 @@ Revisado para:
  - categorias fixas com emojis e tema perolado
  - Classes para melhor organização e escalabilidade
  - Tipagem e validação aprimoradas
+ - CORREÇÃO: Problema de multiplicação por 100 nos valores corrigido
 Compatível com Python 3.9+ e Flask
 """
 from flask import Flask, request, redirect, url_for, flash, render_template_string, jsonify
@@ -27,6 +28,7 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", "troque_essa_chave_para_uma_
 
 # ---------- Constantes e Configurações ----------
 DATA_FILE = "dados.json"
+FIRST_RUN_FLAG = ".first_run_complete"  # Arquivo que indica se já foi executado antes
 DATA_LOCK = threading.Lock()
 
 FIXED_CATEGORIES_DATA: List[Dict[str, str]] = [
@@ -45,7 +47,17 @@ def money_to_decimal(value_str: Optional[str]) -> Decimal:
     if value_str is None:
         raise InvalidOperation("Valor monetário não pode ser nulo.")
     v = str(value_str).strip().replace(" ", "")
-    v = v.replace(".", "").replace(",", ".") # Aceita 1.234,56 ou 1234,56 ou 1234.56
+    # CORREÇÃO: Melhor tratamento de formato monetário
+    # Remove R$ se presente
+    v = v.replace("R$", "").strip()
+    # Se tem ponto E vírgula, assume formato brasileiro (1.234,56)
+    if "." in v and "," in v:
+        v = v.replace(".", "").replace(",", ".")
+    # Se tem apenas vírgula, assume formato brasileiro (1234,56)
+    elif "," in v and "." not in v:
+        v = v.replace(",", ".")
+    # Se tem apenas ponto, pode ser formato americano (1234.56) ou separador de milhares (1.234)
+    # Assumimos formato americano se há apenas um ponto
     return Decimal(v).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 def decimal_to_brl(d: Optional[Decimal]) -> str:
@@ -121,6 +133,15 @@ def hsl_to_hex(h: int, s: int, l: int) -> str:
     g = int((g1 + m) * 255)
     b = int((b1 + m) * 255)
     return '#{:02x}{:02x}{:02x}'.format(r, g, b)
+
+def is_first_run() -> bool:
+    """Verifica se é a primeira execução do aplicativo."""
+    return not os.path.exists(FIRST_RUN_FLAG)
+
+def mark_first_run_complete():
+    """Marca que a primeira execução foi completada."""
+    with open(FIRST_RUN_FLAG, 'w') as f:
+        f.write(str(datetime.now().isoformat()))
 
 # ---------- Classes de Entidade ----------
 class Category:
@@ -218,9 +239,29 @@ class Conta:
 
     @staticmethod
     def from_dict(data: Dict[str, Any]) -> 'Conta':
-        # Normalização de dados ao carregar
-        amount = money_to_decimal(data.get("amount_decimal") or data.get("valor") or data.get("value") or "0.00")
-        paid_amount = money_to_decimal(data.get("paid_amount")) if data.get("paid_amount") else None
+        # CORREÇÃO: Normalização mais cuidadosa dos dados ao carregar
+        amount_raw = data.get("amount_decimal") or data.get("valor") or data.get("value") or "0.00"
+        
+        # Se o valor já é um Decimal ou número, converter para string primeiro
+        if isinstance(amount_raw, (Decimal, int, float)):
+            amount_raw = str(amount_raw)
+        
+        amount = money_to_decimal(amount_raw)
+        
+        # CORREÇÃO: Tratar paid_amount de forma mais cuidadosa
+        paid_amount = None
+        paid_amount_raw = data.get("paid_amount")
+        if paid_amount_raw is not None and paid_amount_raw != "":
+            try:
+                # Se paid_amount já é um número (Decimal), usar diretamente
+                if isinstance(paid_amount_raw, (int, float, Decimal)):
+                    paid_amount = Decimal(str(paid_amount_raw)).quantize(Decimal("0.01"))
+                else:
+                    # Se é string, usar money_to_decimal
+                    paid_amount = money_to_decimal(str(paid_amount_raw))
+            except (InvalidOperation, ValueError):
+                paid_amount = None
+        
         created_at_str = data.get("created_at")
         created_at = datetime.fromisoformat(created_at_str) if created_at_str else datetime.now()
         paid_at_str = data.get("paid_at")
@@ -254,8 +295,18 @@ class Conta:
 class DataManager:
     def __init__(self, file_path: str):
         self.file_path: str = file_path
+        self._handle_first_run()
         self._ensure_datafile()
         self._data: Dict[str, Any] = self._load_from_file()
+
+    def _handle_first_run(self):
+        """Gerencia a primeira execução - zera dados existentes se for a primeira vez."""
+        if is_first_run():
+            # Se é a primeira execução, remove o arquivo de dados existente (se houver)
+            if os.path.exists(self.file_path):
+                os.remove(self.file_path)
+            # Marca que a primeira execução foi completada
+            mark_first_run_complete()
 
     def _ensure_datafile(self):
         """Cria o arquivo de dados se não existir."""
@@ -524,7 +575,8 @@ def index():
                 cat_name = c.category if c.category in by_cat else DEFAULT_EXTRA_CATEGORY_DATA["name"]
                 by_cat[cat_name] += val
                 if c.status == "paid":
-                    paid_amount_val = c.paid_amount if c.paid_amount else val
+                    # CORREÇÃO: Usar o paid_amount se existir, senão usar o valor original
+                    paid_amount_val = c.paid_amount if c.paid_amount is not None else val
                     paid += paid_amount_val
                 else:
                     pending += val
@@ -811,13 +863,14 @@ def toggle_pay(conta_id: str):
         paid_date_raw = request.form.get("paid_date")
 
         paid_amount: Optional[Decimal] = None
-        if paid_amount_raw:
+        if paid_amount_raw and paid_amount_raw.strip():
             try:
-                paid_amount = money_to_decimal(paid_amount_raw)
+                paid_amount = money_to_decimal(paid_amount_raw.strip())
             except InvalidOperation:
                 flash("Valor de pagamento inválido.", "danger")
                 return redirect(url_for("index", month=original_month))
         
+        # CORREÇÃO: Se não foi informado valor pago, usar o valor original da conta
         target_conta.paid_amount = paid_amount if paid_amount is not None else target_conta.amount_decimal
         
         if paid_date_raw:
@@ -1464,12 +1517,17 @@ TEMPLATE_CADASTRAR = """
     .card-royal { border-radius: 12px; box-shadow: 0 6px 18px rgba(100,95,150,0.08); }
     .btn-royal { background: linear-gradient(90deg,var(--royal-2),var(--accent)); color: white; border: none; box-shadow: 0 6px 18px rgba(107, 99, 181, 0.12); }
     .small-muted { color:#666; font-size:.9rem; }
+    .btn-back { background: #6c757d; color: white; border: none; border-radius: 50px; padding: 0.5rem 1rem; text-decoration: none; font-size: 0.9rem; }
+    .btn-back:hover { background: #5a6268; color: white; text-decoration: none; }
   </style>
 </head>
 <body>
 <nav class="navbar navbar-expand-lg" style="background:transparent;">
   <div class="container">
-    <a class="navbar-brand brand" href="{{ url_for('index') }}">💠 Organizador de Contas</a>
+    <div class="d-flex align-items-center gap-3">
+      <a class="btn-back" href="{{ url_for('index') }}">← Voltar</a>
+      <a class="navbar-brand brand" href="{{ url_for('index') }}">💠 Organizador de Contas</a>
+    </div>
   </div>
 </nav>
 
