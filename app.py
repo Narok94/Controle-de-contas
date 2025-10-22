@@ -6,10 +6,12 @@ Revisado para:
  - desfazer pagamento (volta para pendente)
  - usa dados.json como arquivo principal (não zera)
  - recorrências automáticas
- - categorias fixas com emojis e tema perolado
+ - categorias fixas com emojis e tema moderno
  - Classes para melhor organização e escalabilidade
  - Tipagem e validação aprimoradas
  - CORREÇÃO: Problema de multiplicação por 100 nos valores corrigido
+ - TEMA MODERNO: Interface repaginada com design contemporâneo
+ - PRIMEIRA EXECUÇÃO: Removida opção de salvamento inicial
 Compatível com Python 3.9+ e Flask
 """
 from flask import Flask, request, redirect, url_for, flash, render_template_string, jsonify
@@ -28,7 +30,7 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", "troque_essa_chave_para_uma_
 
 # ---------- Constantes e Configurações ----------
 DATA_FILE = "dados.json"
-FIRST_RUN_FLAG = ".first_run_complete"  # Arquivo que indica se já foi executado antes
+# REMOVIDO: FIRST_RUN_FLAG - não há mais primeira execução especial
 DATA_LOCK = threading.Lock()
 
 FIXED_CATEGORIES_DATA: List[Dict[str, str]] = [
@@ -112,8 +114,8 @@ def color_for_category(name: str) -> str:
     """Gera uma cor HSL determinística (e depois HEX) para um nome de categoria."""
     h = int(hashlib.sha1(name.encode("utf-8")).hexdigest()[:8], 16)
     hue = h % 360
-    sat = 60
-    light = 55
+    sat = 70  # Aumentado para cores mais vibrantes
+    light = 50  # Ajustado para melhor contraste
     return hsl_to_hex(hue, sat, light)
 
 def hsl_to_hex(h: int, s: int, l: int) -> str:
@@ -134,14 +136,7 @@ def hsl_to_hex(h: int, s: int, l: int) -> str:
     b = int((b1 + m) * 255)
     return '#{:02x}{:02x}{:02x}'.format(r, g, b)
 
-def is_first_run() -> bool:
-    """Verifica se é a primeira execução do aplicativo."""
-    return not os.path.exists(FIRST_RUN_FLAG)
-
-def mark_first_run_complete():
-    """Marca que a primeira execução foi completada."""
-    with open(FIRST_RUN_FLAG, 'w') as f:
-        f.write(str(datetime.now().isoformat()))
+# REMOVIDO: Funções is_first_run() e mark_first_run_complete()
 
 # ---------- Classes de Entidade ----------
 class Category:
@@ -295,18 +290,9 @@ class Conta:
 class DataManager:
     def __init__(self, file_path: str):
         self.file_path: str = file_path
-        self._handle_first_run()
+        # REMOVIDO: _handle_first_run() - não há mais tratamento especial de primeira execução
         self._ensure_datafile()
         self._data: Dict[str, Any] = self._load_from_file()
-
-    def _handle_first_run(self):
-        """Gerencia a primeira execução - zera dados existentes se for a primeira vez."""
-        if is_first_run():
-            # Se é a primeira execução, remove o arquivo de dados existente (se houver)
-            if os.path.exists(self.file_path):
-                os.remove(self.file_path)
-            # Marca que a primeira execução foi completada
-            mark_first_run_complete()
 
     def _ensure_datafile(self):
         """Cria o arquivo de dados se não existir."""
@@ -969,7 +955,7 @@ def chart_data():
     return jsonify({"labels": labels, "values": values, "colors": colors, "month": month})
 
 # ---------- Templates (inline) ----------
-# Mantive o tema perolado royal, emojis, botões e comportamento solicitado.
+# TEMA MODERNO: Interface repaginada com design contemporâneo
 TEMPLATE_INDEX = """
 <!doctype html>
 <html lang="pt-br">
@@ -979,36 +965,237 @@ TEMPLATE_INDEX = """
   <title>Organizador de Contas</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <style>
-    :root{ --royal-1:#2b2f7b; --royal-2:#6b63b5; --perola:#f5f4f9; --accent:#bfa5ff; --green:#2ecc71; --red:#e74c3c; }
-    body{ background: linear-gradient(180deg, var(--perola), #eef0fb); }
-    .brand { color: var(--royal-1); font-weight:700; }
-    .card-royal { border-radius: 12px; box-shadow: 0 6px 18px rgba(100,95,150,0.08); }
-    .btn-royal { background: linear-gradient(90deg,var(--royal-2),var(--accent)); color: white; border: none; box-shadow: 0 6px 18px rgba(107, 99, 181, 0.12); }
-    .small-muted { color:#666; font-size:.9rem; }
-    .status-paid { background: var(--green); color: #fff; padding: .25rem .5rem; border-radius: .35rem; }
-    .status-pending { background: var(--red); color: #fff; padding: .25rem .5rem; border-radius: .35rem; }
-    .arrow-icon { display: inline-block; width: 1.2em; height: 1.2em; vertical-align: text-bottom; background-repeat: no-repeat; background-position: center; background-size: 100%; }
-    .arrow-up { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='%23dc3545' d='M7.247 4.86A.75.75 0 018 4.5h.5a.75.75 0 01.753.36l2.5 4.5A.75.75 0 0111.5 10H10a.75.75 0 01-.703-.496L8 6.072l-1.297 3.432A.75.75 0 016 10H4.5a.75.75 0 01-.753-1.14L7.247 4.86z'/%3E%3C/svg%3E"); }
-    .arrow-down { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='%2328a745' d='M8.753 11.14A.75.75 0 018 11.5h-.5a.75.75 0 01-.753-.36L4.247 6.64A.75.75 0 014.5 6H6a.75.75 0 01.703.496L8 9.928l1.297-3.432A.75.75 0 0110 6h1.5a.75.75 0 01.753 1.14L8.753 11.14z'/%3E%3C/svg%3E"); }
+    :root {
+      --primary-dark: #1a1a2e;
+      --secondary-dark: #16213e;
+      --accent-blue: #0f3460;
+      --bright-blue: #533483;
+      --neon-cyan: #00d4ff;
+      --soft-white: #f8f9fa;
+      --success-green: #28a745;
+      --danger-red: #dc3545;
+      --warning-orange: #fd7e14;
+      --gradient-bg: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      --card-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+      --hover-shadow: 0 15px 40px rgba(0, 0, 0, 0.25);
+    }
+    
+    body {
+      background: var(--gradient-bg);
+      min-height: 100vh;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+    
+    .navbar {
+      background: rgba(26, 26, 46, 0.95) !important;
+      backdrop-filter: blur(10px);
+      border-bottom: 2px solid var(--neon-cyan);
+    }
+    
+    .brand {
+      color: var(--neon-cyan) !important;
+      font-weight: 700;
+      font-size: 1.5rem;
+      text-shadow: 0 0 10px rgba(0, 212, 255, 0.3);
+    }
+    
+    .modern-card {
+      background: rgba(255, 255, 255, 0.95);
+      border-radius: 20px;
+      box-shadow: var(--card-shadow);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      backdrop-filter: blur(10px);
+      transition: all 0.3s ease;
+    }
+    
+    .modern-card:hover {
+      box-shadow: var(--hover-shadow);
+      transform: translateY(-5px);
+    }
+    
+    .btn-modern {
+      background: linear-gradient(45deg, var(--bright-blue), var(--neon-cyan));
+      color: white;
+      border: none;
+      border-radius: 15px;
+      padding: 12px 25px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      transition: all 0.3s ease;
+      box-shadow: 0 5px 15px rgba(83, 52, 131, 0.3);
+    }
+    
+    .btn-modern:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 25px rgba(83, 52, 131, 0.4);
+      color: white;
+    }
+    
+    .btn-outline-modern {
+      border: 2px solid var(--neon-cyan);
+      color: var(--neon-cyan);
+      background: transparent;
+      border-radius: 15px;
+      padding: 10px 20px;
+      font-weight: 600;
+      transition: all 0.3s ease;
+    }
+    
+    .btn-outline-modern:hover {
+      background: var(--neon-cyan);
+      color: white;
+      transform: translateY(-2px);
+    }
+    
+    .status-paid {
+      background: linear-gradient(45deg, var(--success-green), #20c997);
+      color: white;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-weight: 600;
+      text-transform: uppercase;
+      font-size: 0.8rem;
+      letter-spacing: 0.5px;
+    }
+    
+    .status-pending {
+      background: linear-gradient(45deg, var(--danger-red), #e74c3c);
+      color: white;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-weight: 600;
+      text-transform: uppercase;
+      font-size: 0.8rem;
+      letter-spacing: 0.5px;
+    }
+    
+    .form-control, .form-select {
+      border-radius: 15px;
+      border: 2px solid rgba(0, 212, 255, 0.3);
+      padding: 12px 20px;
+      transition: all 0.3s ease;
+    }
+    
+    .form-control:focus, .form-select:focus {
+      border-color: var(--neon-cyan);
+      box-shadow: 0 0 20px rgba(0, 212, 255, 0.2);
+    }
+    
+    .table {
+      background: rgba(255, 255, 255, 0.9);
+      border-radius: 15px;
+      overflow: hidden;
+    }
+    
+    .table thead th {
+      background: linear-gradient(45deg, var(--primary-dark), var(--secondary-dark));
+      color: white;
+      border: none;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    
+    .table tbody tr {
+      transition: all 0.3s ease;
+    }
+    
+    .table tbody tr:hover {
+      background: rgba(0, 212, 255, 0.1);
+      transform: scale(1.02);
+    }
+    
+    .stats-card {
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.7));
+      border-radius: 20px;
+      padding: 25px;
+      text-align: center;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      transition: all 0.3s ease;
+    }
+    
+    .stats-card:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 15px 30px rgba(0, 0, 0, 0.2);
+    }
+    
+    .stats-value {
+      font-size: 2rem;
+      font-weight: 700;
+      margin-top: 10px;
+    }
+    
+    .stats-label {
+      color: #6c757d;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-size: 0.9rem;
+    }
+    
+    .modal-content {
+      border-radius: 20px;
+      border: none;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    }
+    
+    .modal-header {
+      background: linear-gradient(45deg, var(--primary-dark), var(--secondary-dark));
+      color: white;
+      border-radius: 20px 20px 0 0;
+    }
+    
+    .arrow-icon {
+      display: inline-block;
+      width: 1.5em;
+      height: 1.5em;
+      vertical-align: text-bottom;
+      background-repeat: no-repeat;
+      background-position: center;
+      background-size: 100%;
+    }
+    
+    .arrow-up {
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='%23dc3545' d='M7.247 4.86A.75.75 0 018 4.5h.5a.75.75 0 01.753.36l2.5 4.5A.75.75 0 0111.5 10H10a.75.75 0 01-.703-.496L8 6.072l-1.297 3.432A.75.75 0 016 10H4.5a.75.75 0 01-.753-1.14L7.247 4.86z'/%3E%3C/svg%3E");
+    }
+    
+    .arrow-down {
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='%2328a745' d='M8.753 11.14A.75.75 0 018 11.5h-.5a.75.75 0 01-.753-.36L4.247 6.64A.75.75 0 014.5 6H6a.75.75 0 01.703.496L8 9.928l1.297-3.432A.75.75 0 0110 6h1.5a.75.75 0 01.753 1.14L8.753 11.14z'/%3E%3C/svg%3E");
+    }
+    
+    .text-glow {
+      text-shadow: 0 0 10px rgba(0, 212, 255, 0.5);
+    }
+    
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(0, 212, 255, 0.7); }
+      70% { box-shadow: 0 0 0 10px rgba(0, 212, 255, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(0, 212, 255, 0); }
+    }
+    
+    .pulse-effect {
+      animation: pulse 2s infinite;
+    }
   </style>
 </head>
 <body>
-<nav class="navbar navbar-expand-lg" style="background:transparent;">
+<nav class="navbar navbar-expand-lg">
   <div class="container">
-    <a class="navbar-brand brand" href="{{ url_for('index') }}">💠 Organizador de Contas</a>
-    <div class="d-flex gap-2">
-      <a class="btn btn-outline-secondary" href="{{ url_for('cadastrar') }}">➕ Nova Conta</a>
-      <a class="btn btn-outline-secondary" href="{{ url_for('categories_view') }}">📂 Categorias</a>
+    <a class="navbar-brand brand" href="{{ url_for('index') }}">💎 Organizador de Contas</a>
+    <div class="d-flex gap-3">
+      <a class="btn btn-outline-modern" href="{{ url_for('cadastrar') }}">➕ Nova Conta</a>
+      <a class="btn btn-outline-modern" href="{{ url_for('categories_view') }}">📂 Categorias</a>
     </div>
   </div>
 </nav>
 
-<div class="container py-3">
+<div class="container py-4">
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
-      <div class="mb-2">
+      <div class="mb-4">
       {% for cat, msg in messages %}
-        <div class="alert alert-{{ 'info' if cat=='info' else cat }} alert-dismissible fade show" role="alert">
+        <div class="alert alert-{{ 'info' if cat=='info' else cat }} alert-dismissible fade show modern-card" role="alert">
           {{ msg }}
           <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         </div>
@@ -1017,36 +1204,73 @@ TEMPLATE_INDEX = """
     {% endif %}
   {% endwith %}
 
+  <!-- Estatísticas -->
+  <div class="row mb-4">
+    <div class="col-md-3 mb-3">
+      <div class="stats-card">
+        <div class="stats-label">💰 Total</div>
+        <div class="stats-value text-primary">{{ decimal_to_brl(curr_totals.total) }}</div>
+      </div>
+    </div>
+    <div class="col-md-3 mb-3">
+      <div class="stats-card">
+        <div class="stats-label">✅ Pago</div>
+        <div class="stats-value text-success">{{ decimal_to_brl(curr_totals.paid) }}</div>
+      </div>
+    </div>
+    <div class="col-md-3 mb-3">
+      <div class="stats-card">
+        <div class="stats-label">⏳ Pendente</div>
+        <div class="stats-value text-danger">{{ decimal_to_brl(curr_totals.pending) }}</div>
+      </div>
+    </div>
+    <div class="col-md-3 mb-3">
+      <div class="stats-card">
+        <div class="stats-label">📊 Variação</div>
+        <div class="stats-value">
+          {% if diff > 0 %}
+            <span class="text-danger">+{{ (diff / prev_totals.total * 100).quantize(Decimal('0.1')) if prev_totals.total != 0 else 0 }}%</span>
+            <span class="arrow-icon arrow-up"></span>
+          {% elif diff < 0 %}
+            <span class="text-success">{{ (diff / prev_totals.total * 100).quantize(Decimal('0.1')) if prev_totals.total != 0 else 0 }}%</span>
+            <span class="arrow-icon arrow-down"></span>
+          {% else %}
+            <span class="text-muted">0%</span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="row">
     <div class="col-lg-8">
-      <div class="card card-royal p-3 mb-3">
-        <div class="d-flex justify-content-between align-items-center mb-2">
+      <div class="modern-card p-4 mb-4">
+        <div class="d-flex justify-content-between align-items-center mb-3">
           <div>
-            <h5 class="mb-0">Contas - mês: <strong>{{ sel_month }}</strong></h5>
-            <div class="small-muted">Total: {{ decimal_to_brl(curr_totals.total) }} • Pago: <span style="color:var(--green)">{{ decimal_to_brl(curr_totals.paid) }}</span> • Pendente: <span style="color:var(--red)">{{ decimal_to_brl(curr_totals.pending) }}</span></div>
+            <h4 class="mb-0 text-glow">📋 Contas - {{ sel_month }}</h4>
           </div>
           <div class="d-flex gap-2 align-items-center">
             <form method="get" class="d-flex gap-2 align-items-center">
-              <button type="button" class="btn btn-sm btn-outline-secondary" onclick="changeMonth('prev')">←</button>
+              <button type="button" class="btn btn-outline-modern btn-sm" onclick="changeMonth('prev')">←</button>
               <select id="monthSelect" name="month" class="form-select form-select-sm" onchange="this.form.submit()">
                 {% for m in months %}
                   <option value="{{ m }}" {% if m==sel_month %}selected{% endif %}>{{ m }}</option>
                 {% endfor %}
               </select>
-              <button type="button" class="btn btn-sm btn-outline-secondary" onclick="changeMonth('next')">→</button>
+              <button type="button" class="btn btn-outline-modern btn-sm" onclick="changeMonth('next')">→</button>
               <input type="hidden" name="category" value="{{ sel_category }}">
               <input type="hidden" name="q" value="{{ q_search }}">
             </form>
           </div>
         </div>
 
-        <div class="d-flex gap-2 mb-3">
-          <select id="filterCategory" name="category" class="form-select w-auto" onchange="onFilterChange()">
+        <div class="d-flex gap-3 mb-4">
+          <select id="filterCategory" name="category" class="form-select" onchange="onFilterChange()">
             {% for cat in categories %}
               <option value="{{ cat }}" {% if cat==sel_category %}selected{% endif %}>{{ cat }}</option>
             {% endfor %}
           </select>
-          <input id="searchBox" type="search" class="form-control" placeholder="Buscar por nome ou nota..." value="{{ q_search }}" oninput="onFilterChange()">
+          <input id="searchBox" type="search" class="form-control" placeholder="🔍 Buscar por nome ou nota..." value="{{ q_search }}" oninput="onFilterChange()">
         </div>
 
         {% if contas %}
@@ -1054,11 +1278,11 @@ TEMPLATE_INDEX = """
           <table id="contasTable" class="table align-middle">
             <thead>
               <tr>
-                <th>Nome</th>
-                <th>Categoria</th>
-                <th>Valor</th>
-                <th>Status</th>
-                <th class="text-end">Ações</th>
+                <th>📝 Nome</th>
+                <th>📂 Categoria</th>
+                <th>💰 Valor</th>
+                <th>📊 Status</th>
+                <th class="text-end">⚙️ Ações</th>
               </tr>
             </thead>
             <tbody>
@@ -1066,45 +1290,47 @@ TEMPLATE_INDEX = """
               <tr data-name="{{ (c.name + ' ' + (c.notes or '') ).lower() | e }}">
                 <td>
                   <strong>{{ c.name }}</strong>
-                  <div class="small-muted">{{ c.notes }}</div>
+                  {% if c.notes %}<div class="text-muted small">{{ c.notes }}</div>{% endif %}
                 </td>
                 <td>
                   {% set cat_obj = categories_full | selectattr('name', 'equalto', c.category) | first %}
                   {% if cat_obj %}
-                    <span style="font-size:1.1rem">{{ cat_obj.icon }}</span> &nbsp; {{ cat_obj.name }}
+                    <span style="font-size:1.2rem">{{ cat_obj.icon }}</span> {{ cat_obj.name }}
                   {% else %}
                     <span>📂 {{ c.category }}</span>
                   {% endif %}
                 </td>
-                <td>{{ decimal_to_brl(c.amount_decimal) }}</td>
+                <td><strong>{{ decimal_to_brl(c.amount_decimal) }}</strong></td>
                 <td>
                   {% if c.status == 'paid' %}
-                    <span class="status-paid">Pago</span>
-                    {% if c.paid_at %}<div class="small-muted">em {{ c.paid_at.strftime('%Y-%m-%d') }}</div>{% endif %}
+                    <span class="status-paid">✅ Pago</span>
+                    {% if c.paid_at %}<div class="text-muted small">{{ c.paid_at.strftime('%d/%m/%Y') }}</div>{% endif %}
                   {% else %}
-                    <span class="status-pending">Pendente</span>
+                    <span class="status-pending">⏳ Pendente</span>
                   {% endif %}
                   {% if c.recorrente %}
-                    <div class="small-muted mt-1">🔁 Recorrente</div>
+                    <div class="text-muted small mt-1">🔁 Recorrente</div>
                   {% endif %}
                   {% if c.parcelada %}
-                    <div class="small-muted mt-1">📦 Parcela {{ c.parcel_index or '?' }} / {{ c.parcel_total or c.parcelas or '?' }}</div>
+                    <div class="text-muted small mt-1">📦 {{ c.parcel_index or '?' }}/{{ c.parcel_total or c.parcelas or '?' }}</div>
                   {% endif %}
                 </td>
                 <td class="text-end">
-                  <a class="btn btn-sm btn-outline-primary" href="{{ url_for('edit', conta_id=c.id, month=sel_month) }}">✏️ Editar</a>
-
-                  {% if c.status == 'paid' %}
-                    <form method="post" action="{{ url_for('toggle_pay', conta_id=c.id, month=sel_month) }}" style="display:inline">
-                      <button class="btn btn-sm btn-warning" type="submit">↩️ Desfazer</button>
+                  <div class="btn-group" role="group">
+                    <a class="btn btn-outline-primary btn-sm" href="{{ url_for('edit', conta_id=c.id, month=sel_month) }}">✏️</a>
+                    
+                    {% if c.status == 'paid' %}
+                      <form method="post" action="{{ url_for('toggle_pay', conta_id=c.id, month=sel_month) }}" style="display:inline">
+                        <button class="btn btn-warning btn-sm" type="submit">↩️</button>
+                      </form>
+                    {% else %}
+                      <button class="btn btn-success btn-sm pulse-effect" data-id="{{ c.id }}" data-amount="{{ c.amount_decimal }}" data-month="{{ c.month }}" data-bs-toggle="modal" data-bs-target="#payModal" onclick="openPayModalFromBtn(this)">💵</button>
+                    {% endif %}
+                    
+                    <form method="post" action="{{ url_for('delete', conta_id=c.id, month=sel_month) }}" style="display:inline" onsubmit="return confirm('❌ Tem certeza que deseja excluir esta conta?')">
+                      <button class="btn btn-outline-danger btn-sm">🗑️</button>
                     </form>
-                  {% else %}
-                    <button class="btn btn-sm btn-success" data-id="{{ c.id }}" data-amount="{{ c.amount_decimal }}" data-month="{{ c.month }}" data-bs-toggle="modal" data-bs-target="#payModal" onclick="openPayModalFromBtn(this)">💵 Marcar Paga</button>
-                  {% endif %}
-
-                  <form method="post" action="{{ url_for('delete', conta_id=c.id, month=sel_month) }}" style="display:inline" onsubmit="return confirm('Tem certeza que deseja excluir esta conta?')">
-                    <button class="btn btn-sm btn-outline-danger">🗑️ Excluir</button>
-                  </form>
+                  </div>
                 </td>
               </tr>
               {% endfor %}
@@ -1112,127 +1338,91 @@ TEMPLATE_INDEX = """
           </table>
         </div>
         {% else %}
-          <div class="p-4 text-center small-muted">Nenhuma conta cadastrada para este mês com os filtros aplicados.</div>
+          <div class="text-center py-5">
+            <div style="font-size: 4rem; opacity: 0.3;">📋</div>
+            <h5 class="text-muted">Nenhuma conta cadastrada</h5>
+            <p class="text-muted">Adicione sua primeira conta para começar!</p>
+          </div>
         {% endif %}
       </div>
     </div>
 
     <div class="col-lg-4">
-      <div class="card p-3 card-royal mb-3">
-        <h6>Resumo - {{ sel_month }}</h6>
-        <div class="mt-2">
-          <div class="d-flex gap-2">
-            <div class="p-2 card-royal" style="flex:1; text-align:center">
-              <small class="small-muted">Total</small>
-              <div style="font-weight:700">{{ decimal_to_brl(curr_totals.total) }}</div>
-            </div>
-            <div class="p-2 card-royal" style="flex:1; text-align:center; background:#e8fbef;">
-              <small class="small-muted">Pago</small>
-              <div style="font-weight:700; color:var(--green)">{{ decimal_to_brl(curr_totals.paid) }}</div>
-            </div>
-            <div class="p-2 card-royal" style="flex:1; text-align:center; background:#fdecec;">
-              <small class="small-muted">Pendente</small>
-              <div style="font-weight:700; color:var(--red)">{{ decimal_to_brl(curr_totals.pending) }}</div>
-            </div>
-          </div>
-
-          <hr>
-          <p class="small-muted">Mês anterior: <strong>{{ prev_month_key or '—' }}</strong></p>
-          <p class="mb-1 small-muted">Total anterior:</p>
-          <p class="mb-1">{{ decimal_to_brl(prev_totals.total) }}</p>
-
-          <div class="mt-3">
-            <p class="small-muted">Variação vs mês anterior:</p>
-            {% if diff > 0 %}
-              <div class="text-danger"><strong>+ {{ decimal_to_brl(diff) }}{% if percent %} ({{ percent }}%){% endif %} <span class="arrow-icon arrow-up"></span> (aumentou)</strong></div>
-            {% elif diff < 0 %}
-              <div class="text-success"><strong>- {{ decimal_to_brl(-diff) }}{% if percent %} ({{ percent }}%){% endif %} <span class="arrow-icon arrow-down"></span> (reduziu)</strong></div>
-            {% else %}
-              <div class="small-muted"><strong>Sem alteração</strong></div>
-            {% endif %}
-          </div>
-        </div>
-      </div>
-
-      <div class="card p-3 card-royal mb-3">
-        <h6>Gráfico por categoria</h6>
-        <div class="d-flex gap-2 mb-2">
+      <div class="modern-card p-4 mb-4">
+        <h5 class="text-glow">📊 Gráfico por Categoria</h5>
+        <div class="mb-3">
           <select id="chartMonth" class="form-select" onchange="refreshChart()"></select>
         </div>
-        <canvas id="catChart" style="width:100%;height:260px"></canvas>
-        <p class="mt-2 small-muted">Selecione o mês no seletor acima para atualizar o gráfico.</p>
+        <canvas id="catChart" style="width:100%;height:300px"></canvas>
       </div>
 
-      <div class="card p-3 card-royal">
-        <h6>Ações</h6>
-        <div class="mt-2 d-grid gap-2">
-          <a class="btn btn-royal" href="{{ url_for('cadastrar') }}">➕ Nova Conta</a>
-          <a class="btn btn-outline-secondary" href="{{ url_for('categories_view') }}">📂 Gerenciar categorias</a>
+      <div class="modern-card p-4">
+        <h5 class="text-glow">🚀 Ações Rápidas</h5>
+        <div class="d-grid gap-3 mt-3">
+          <a class="btn btn-modern" href="{{ url_for('cadastrar') }}">➕ Nova Conta</a>
+          <a class="btn btn-outline-modern" href="{{ url_for('categories_view') }}">📂 Gerenciar Categorias</a>
         </div>
       </div>
     </div>
   </div>
 </div>
 
-<!-- Pay Modal -->
+<!-- Modal de Pagamento -->
 <div class="modal fade" id="payModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog">
     <form id="payForm" method="post" class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title">Marcar pagamento</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+        <h5 class="modal-title">💵 Marcar Pagamento</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
         <div class="mb-3">
-          <label class="form-label">Valor pago</label>
+          <label class="form-label">💰 Valor Pago</label>
           <input name="paid_amount" id="modalPaidAmount" class="form-control" placeholder="Ex: 150.50">
-          <div class="form-text small-muted">Deixe vazio para usar o valor original.</div>
+          <div class="form-text">Deixe vazio para usar o valor original</div>
         </div>
         <div class="mb-3">
-          <label class="form-label">Data do pagamento</label>
+          <label class="form-label">📅 Data do Pagamento</label>
           <input name="paid_date" id="modalPaidDate" type="date" class="form-control">
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-royal" type="submit">Salvar</button>
-        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-modern" type="submit">✅ Confirmar</button>
+        <button type="button" class="btn btn-outline-modern" data-bs-dismiss="modal">❌ Cancelar</button>
       </div>
     </form>
   </div>
 </div>
 
-<footer class="container text-center mt-3">
-  <p class="small-muted">Aplicação local • Salva em <code>dados.json</code></p>
+<footer class="container text-center mt-4 pb-4">
+  <div class="modern-card p-3">
+    <p class="text-muted mb-0">🔒 Aplicação Local • Dados salvos em <code>dados.json</code></p>
+  </div>
 </footer>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
-  // Popula o seletor de meses do gráfico com os últimos 12 meses + o mês atual se não estiver presente
+  // Popula o seletor de meses do gráfico
   (function populateChartMonths(){
     const sel = document.getElementById('chartMonth');
-    // Limpa opções existentes
-    sel.innerHTML = ''; 
+    sel.innerHTML = '';
 
-    // Obtém o mês atualmente selecionado na URL, se houver
     const urlParams = new URLSearchParams(window.location.search);
     const urlMonth = urlParams.get('month');
 
-    const months = new Set(); // Usar Set para garantir meses únicos e ordenação depois
+    const months = new Set();
     const today = new Date();
 
-    // Adiciona os últimos 12 meses
     for (let i=0; i<12; i++){
       const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
       months.add(d.getFullYear().toString() + '-' + ( (d.getMonth()+1).toString().padStart(2,'0') ));
     }
     
-    // Adiciona o mês selecionado da URL, se for diferente e existir
     if (urlMonth && !months.has(urlMonth)) {
       months.add(urlMonth);
     }
 
-    // Ordena os meses do mais recente para o mais antigo
     const sortedMonths = Array.from(months).sort().reverse();
 
     sortedMonths.forEach(m => {
@@ -1242,7 +1432,6 @@ TEMPLATE_INDEX = """
       sel.appendChild(opt);
     });
 
-    // Define o mês selecionado no gráfico para o mês da URL ou o mês atual como padrão
     sel.value = urlMonth || (new Date().getFullYear() + '-' + String(new Date().getMonth()+1).padStart(2,'0'));
   })();
 
@@ -1257,52 +1446,32 @@ TEMPLATE_INDEX = """
     const ctx = document.getElementById('catChart').getContext('2d');
     if(catChart) catChart.destroy();
     
-    // Check if there's data to display
     if (values.some(v => v > 0)) {
         catChart = new Chart(ctx, {
-        type: 'bar', // ou 'pie' dependendo da preferência
+        type: 'doughnut',
         data: {
             labels: labels,
             datasets: [{
-            label: 'Gastos por categoria',
             data: values,
             backgroundColor: colors,
-            borderWidth: 1
+            borderWidth: 3,
+            borderColor: '#fff'
             }]
         },
         options: {
             responsive: true,
-            scales: { 
-                y: { 
-                    beginAtZero: true,
-                    ticks: {
-                        callback: function(value, index, values) {
-                            return `R$ ${value.toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
-                        }
-                    }
-                },
-                x: {
-                  ticks: {
-                    maxRotation: 45,
-                    minRotation: 45
-                  }
-                }
-            },
             plugins: { 
                 legend: { 
-                    display: false 
+                    position: 'bottom',
+                    labels: {
+                        padding: 20,
+                        usePointStyle: true
+                    }
                 },
                 tooltip: {
                     callbacks: {
                         label: function(context) {
-                            let label = context.dataset.label || '';
-                            if (label) {
-                                label += ': ';
-                            }
-                            if (context.parsed.y !== null) {
-                                label += `R$ ${context.parsed.y.toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
-                            }
-                            return label;
+                            return context.label + ': R$ ' + context.parsed.toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2});
                         }
                     }
                 }
@@ -1310,40 +1479,32 @@ TEMPLATE_INDEX = """
         }
         });
     } else {
-        // Exibe mensagem se não houver dados
         ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
         ctx.font = '16px sans-serif';
         ctx.textAlign = 'center';
         ctx.fillStyle = '#666';
-        ctx.fillText('Nenhum dado para exibir neste mês.', ctx.canvas.width / 2, ctx.canvas.height / 2);
+        ctx.fillText('📊 Nenhum dado para exibir', ctx.canvas.width / 2, ctx.canvas.height / 2);
     }
   }
 
   document.addEventListener('DOMContentLoaded', function(){
     refreshChart();
-    // A função onFilterChange já é chamada no oninput da searchBox, não precisa de uma chamada separada aqui para aplicar filtro inicial.
-    // No entanto, é bom garantir que o URL reflete o estado inicial.
-    // onFilterChange(); // Pode ser removido se o filtro de busca já está sendo aplicado via URL params e Flask.
   });
 
   function onFilterChange(){
     const q = document.getElementById('searchBox').value.toLowerCase();
-    const month = document.getElementById('monthSelect').value; // Usar o month do seletor principal
+    const month = document.getElementById('monthSelect').value;
     const cat = document.getElementById('filterCategory').value;
     const params = new URLSearchParams();
     if(month) params.set('month', month);
-    if(cat && cat !== 'Todos') params.set('category', cat); // 'Todos' não precisa ser um parâmetro
+    if(cat && cat !== 'Todos') params.set('category', cat);
     if(q) params.set('q', q);
     
-    // Atualiza o URL sem recarregar a página para search e category
     window.history.replaceState({}, '', `${location.pathname}?${params.toString()}`);
 
-    // Filtra visualmente a tabela com base na busca
     const rows = document.querySelectorAll('#contasTable tbody tr');
     rows.forEach(r => {
       const name_and_notes = r.getAttribute('data-name') || '';
-      // A categoria já está filtrada pelo Flask no carregamento da página.
-      // Aqui só precisamos filtrar pela busca no front-end.
       if(name_and_notes.includes(q)) r.style.display = '';
       else r.style.display = 'none';
     });
@@ -1352,9 +1513,8 @@ TEMPLATE_INDEX = """
   let currentPayId = null;
   function openPayModalFromBtn(btn){
     currentPayId = btn.dataset.id;
-    document.getElementById('modalPaidAmount').value = btn.dataset.amount; // Preenche com o valor original
+    document.getElementById('modalPaidAmount').value = btn.dataset.amount;
     
-    // Define a data de pagamento para o dia atual por padrão
     const today = new Date();
     const year = today.getFullYear();
     const month = String(today.getMonth() + 1).padStart(2, '0');
@@ -1368,10 +1528,10 @@ TEMPLATE_INDEX = """
   function changeMonth(dir){
     const select = document.getElementById('monthSelect');
     let idx = select.selectedIndex;
-    if(dir === 'prev') { // Avança para um mês mais antigo na lista
+    if(dir === 'prev') {
       idx = Math.min(select.options.length - 1, idx + 1);
     }
-    if(dir === 'next') { // Volta para um mês mais recente na lista
+    if(dir === 'next') {
       idx = Math.max(0, idx - 1);
     }
     select.selectedIndex = idx;
@@ -1391,20 +1551,138 @@ TEMPLATE_CATEGORIES = """
   <title>Gerenciar Categorias</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <style>
-    :root{ --royal-1:#2b2f7b; --royal-2:#6b63b5; --perola:#f5f4f9; --accent:#bfa5ff; }
-    body{ background: linear-gradient(180deg, var(--perola), #eef0fb); }
-    .brand { color: var(--royal-1); font-weight:700; }
-    .card-royal { border-radius: 12px; box-shadow: 0 6px 18px rgba(100,95,150,0.08); }
-    .btn-royal { background: linear-gradient(90deg,var(--royal-2),var(--accent)); color: white; border: none; }
+    :root {
+      --primary-dark: #1a1a2e;
+      --secondary-dark: #16213e;
+      --accent-blue: #0f3460;
+      --bright-blue: #533483;
+      --neon-cyan: #00d4ff;
+      --soft-white: #f8f9fa;
+      --gradient-bg: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      --card-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+      --hover-shadow: 0 15px 40px rgba(0, 0, 0, 0.25);
+    }
+    
+    body {
+      background: var(--gradient-bg);
+      min-height: 100vh;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+    
+    .navbar {
+      background: rgba(26, 26, 46, 0.95) !important;
+      backdrop-filter: blur(10px);
+      border-bottom: 2px solid var(--neon-cyan);
+    }
+    
+    .brand {
+      color: var(--neon-cyan) !important;
+      font-weight: 700;
+      font-size: 1.5rem;
+      text-shadow: 0 0 10px rgba(0, 212, 255, 0.3);
+    }
+    
+    .modern-card {
+      background: rgba(255, 255, 255, 0.95);
+      border-radius: 20px;
+      box-shadow: var(--card-shadow);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      backdrop-filter: blur(10px);
+      transition: all 0.3s ease;
+    }
+    
+    .modern-card:hover {
+      box-shadow: var(--hover-shadow);
+      transform: translateY(-5px);
+    }
+    
+    .btn-modern {
+      background: linear-gradient(45deg, var(--bright-blue), var(--neon-cyan));
+      color: white;
+      border: none;
+      border-radius: 15px;
+      padding: 12px 25px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      transition: all 0.3s ease;
+      box-shadow: 0 5px 15px rgba(83, 52, 131, 0.3);
+    }
+    
+    .btn-modern:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 25px rgba(83, 52, 131, 0.4);
+      color: white;
+    }
+    
+    .btn-outline-modern {
+      border: 2px solid var(--neon-cyan);
+      color: var(--neon-cyan);
+      background: transparent;
+      border-radius: 15px;
+      padding: 10px 20px;
+      font-weight: 600;
+      transition: all 0.3s ease;
+    }
+    
+    .btn-outline-modern:hover {
+      background: var(--neon-cyan);
+      color: white;
+      transform: translateY(-2px);
+    }
+    
+    .category-badge {
+      padding: 15px 25px;
+      border-radius: 25px;
+      font-weight: 600;
+      font-size: 1.1rem;
+      margin: 8px;
+      display: inline-block;
+      transition: all 0.3s ease;
+      box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+    }
+    
+    .category-badge:hover {
+      transform: translateY(-3px) scale(1.05);
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+    }
+    
+    .text-glow {
+      text-shadow: 0 0 10px rgba(0, 212, 255, 0.5);
+    }
+    
+    .form-control, .form-select {
+      border-radius: 15px;
+      border: 2px solid rgba(0, 212, 255, 0.3);
+      padding: 12px 20px;
+      transition: all 0.3s ease;
+    }
+    
+    .form-control:focus, .form-select:focus {
+      border-color: var(--neon-cyan);
+      box-shadow: 0 0 20px rgba(0, 212, 255, 0.2);
+    }
+    
+    .modal-content {
+      border-radius: 20px;
+      border: none;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    }
+    
+    .modal-header {
+      background: linear-gradient(45deg, var(--primary-dark), var(--secondary-dark));
+      color: white;
+      border-radius: 20px 20px 0 0;
+    }
   </style>
 </head>
 <body>
-<nav class="navbar navbar-expand-lg" style="background:transparent;">
+<nav class="navbar navbar-expand-lg">
   <div class="container">
-    <a class="navbar-brand brand" href="{{ url_for('index') }}">💠 Organizador de Contas</a>
-    <div class="d-flex gap-2">
-      <a class="btn btn-outline-secondary" href="{{ url_for('cadastrar') }}">➕ Nova Conta</a>
-      <button class="btn btn-royal" data-bs-toggle="modal" data-bs-target="#addCategoryModal">+ Adicionar categoria</button>
+    <a class="navbar-brand brand" href="{{ url_for('index') }}">💎 Organizador de Contas</a>
+    <div class="d-flex gap-3">
+      <a class="btn btn-outline-modern" href="{{ url_for('cadastrar') }}">➕ Nova Conta</a>
+      <button class="btn btn-modern" data-bs-toggle="modal" data-bs-target="#addCategoryModal">🆕 Adicionar Categoria</button>
     </div>
   </div>
 </nav>
@@ -1412,9 +1690,9 @@ TEMPLATE_CATEGORIES = """
 <div class="container py-4">
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
-      <div class="mb-2">
+      <div class="mb-4">
       {% for cat, msg in messages %}
-        <div class="alert alert-{{ 'info' if cat=='info' else cat }} alert-dismissible fade show" role="alert">
+        <div class="alert alert-{{ 'info' if cat=='info' else cat }} alert-dismissible fade show modern-card" role="alert">
           {{ msg }}
           <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         </div>
@@ -1424,41 +1702,40 @@ TEMPLATE_CATEGORIES = """
   {% endwith %}
 
   <div class="row justify-content-center">
-    <div class="col-lg-8">
-      <div class="card card-royal p-3 mb-3">
-        <h5>Categorias Existentes</h5>
-        <div class="mt-3">
-          <div class="d-flex flex-wrap gap-2">
-            {% for cat in categories %}
-              <div>
-                <span class="badge" style="background:{{ cat_colors.get(cat.name) }}; color:#fff; padding:.6rem .9rem;">
-                  {{ cat.icon }} &nbsp; {{ cat.name }}
-                </span>
-              </div>
-            {% endfor %}
-          </div>
+    <div class="col-lg-10">
+      <div class="modern-card p-4 mb-4">
+        <h4 class="text-glow mb-4">📂 Categorias Existentes</h4>
+        <div class="text-center">
+          {% for cat in categories %}
+            <span class="category-badge" style="background:{{ cat_colors.get(cat.name) }}; color:#fff;">
+              {{ cat.icon }} {{ cat.name }}
+            </span>
+          {% endfor %}
         </div>
       </div>
-      <a class="btn btn-outline-secondary" href="{{ url_for('index') }}">Voltar para Início</a>
+      
+      <div class="text-center">
+        <a class="btn btn-outline-modern btn-lg" href="{{ url_for('index') }}">← Voltar para Início</a>
+      </div>
     </div>
   </div>
 </div>
 
-<!-- add category modal -->
+<!-- Modal Adicionar Categoria -->
 <div class="modal fade" id="addCategoryModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog">
     <form method="post" action="{{ url_for('add_category') }}" class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title">Adicionar Nova Categoria</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+        <h5 class="modal-title">🆕 Adicionar Nova Categoria</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
         <div class="mb-3">
-          <label class="form-label">Nome da categoria</label>
-          <input name="new_category" class="form-control" placeholder="Ex: Streaming" required>
+          <label class="form-label">📝 Nome da Categoria</label>
+          <input name="new_category" class="form-control" placeholder="Ex: Streaming, Academia..." required>
         </div>
         <div class="mb-3">
-          <label class="form-label">Ícone (escolha)</label>
+          <label class="form-label">🎨 Ícone</label>
           <select name="icon_choice" class="form-select">
             <option value="📂">📂 Padrão</option>
             <option value="💡">💡 Luz</option>
@@ -1487,16 +1764,19 @@ TEMPLATE_CATEGORIES = """
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-royal" type="submit">Adicionar Categoria</button>
-        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-modern" type="submit">✅ Adicionar</button>
+        <button type="button" class="btn btn-outline-modern" data-bs-dismiss="modal">❌ Cancelar</button>
       </div>
     </form>
   </div>
 </div>
 
-<footer class="container text-center mt-4">
-  <p class="small-muted">Aplicação local • Salva em <code>dados.json</code></p>
+<footer class="container text-center mt-4 pb-4">
+  <div class="modern-card p-3">
+    <p class="text-muted mb-0">🔒 Aplicação Local • Dados salvos em <code>dados.json</code></p>
+  </div>
 </footer>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
@@ -1511,22 +1791,138 @@ TEMPLATE_CADASTRAR = """
   <title>{% if form.id %}Editar Conta{% else %}Nova Conta{% endif %}</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <style>
-    :root{ --royal-1:#2b2f7b; --royal-2:#6b63b5; --perola:#f5f4f9; --accent:#bfa5ff; }
-    body{ background: linear-gradient(180deg, var(--perola), #eef0fb); }
-    .brand { color: var(--royal-1); font-weight:700; }
-    .card-royal { border-radius: 12px; box-shadow: 0 6px 18px rgba(100,95,150,0.08); }
-    .btn-royal { background: linear-gradient(90deg,var(--royal-2),var(--accent)); color: white; border: none; box-shadow: 0 6px 18px rgba(107, 99, 181, 0.12); }
-    .small-muted { color:#666; font-size:.9rem; }
-    .btn-back { background: #6c757d; color: white; border: none; border-radius: 50px; padding: 0.5rem 1rem; text-decoration: none; font-size: 0.9rem; }
-    .btn-back:hover { background: #5a6268; color: white; text-decoration: none; }
+    :root {
+      --primary-dark: #1a1a2e;
+      --secondary-dark: #16213e;
+      --accent-blue: #0f3460;
+      --bright-blue: #533483;
+      --neon-cyan: #00d4ff;
+      --soft-white: #f8f9fa;
+      --gradient-bg: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      --card-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+      --hover-shadow: 0 15px 40px rgba(0, 0, 0, 0.25);
+    }
+    
+    body {
+      background: var(--gradient-bg);
+      min-height: 100vh;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+    
+    .navbar {
+      background: rgba(26, 26, 46, 0.95) !important;
+      backdrop-filter: blur(10px);
+      border-bottom: 2px solid var(--neon-cyan);
+    }
+    
+    .brand {
+      color: var(--neon-cyan) !important;
+      font-weight: 700;
+      font-size: 1.5rem;
+      text-shadow: 0 0 10px rgba(0, 212, 255, 0.3);
+    }
+    
+    .modern-card {
+      background: rgba(255, 255, 255, 0.95);
+      border-radius: 20px;
+      box-shadow: var(--card-shadow);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      backdrop-filter: blur(10px);
+      transition: all 0.3s ease;
+    }
+    
+    .btn-modern {
+      background: linear-gradient(45deg, var(--bright-blue), var(--neon-cyan));
+      color: white;
+      border: none;
+      border-radius: 15px;
+      padding: 12px 25px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      transition: all 0.3s ease;
+      box-shadow: 0 5px 15px rgba(83, 52, 131, 0.3);
+    }
+    
+    .btn-modern:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 25px rgba(83, 52, 131, 0.4);
+      color: white;
+    }
+    
+    .btn-outline-modern {
+      border: 2px solid var(--neon-cyan);
+      color: var(--neon-cyan);
+      background: transparent;
+      border-radius: 15px;
+      padding: 10px 20px;
+      font-weight: 600;
+      transition: all 0.3s ease;
+    }
+    
+    .btn-outline-modern:hover {
+      background: var(--neon-cyan);
+      color: white;
+      transform: translateY(-2px);
+    }
+    
+    .btn-back {
+      background: linear-gradient(45deg, #6c757d, #495057);
+      color: white;
+      border: none;
+      border-radius: 25px;
+      padding: 10px 20px;
+      text-decoration: none;
+      font-weight: 600;
+      transition: all 0.3s ease;
+    }
+    
+    .btn-back:hover {
+      background: linear-gradient(45deg, #495057, #343a40);
+      color: white;
+      text-decoration: none;
+      transform: translateY(-2px);
+    }
+    
+    .form-control, .form-select {
+      border-radius: 15px;
+      border: 2px solid rgba(0, 212, 255, 0.3);
+      padding: 12px 20px;
+      transition: all 0.3s ease;
+    }
+    
+    .form-control:focus, .form-select:focus {
+      border-color: var(--neon-cyan);
+      box-shadow: 0 0 20px rgba(0, 212, 255, 0.2);
+    }
+    
+    .form-check-input:checked {
+      background-color: var(--neon-cyan);
+      border-color: var(--neon-cyan);
+    }
+    
+    .text-glow {
+      text-shadow: 0 0 10px rgba(0, 212, 255, 0.5);
+    }
+    
+    .form-label {
+      font-weight: 600;
+      color: var(--primary-dark);
+      margin-bottom: 8px;
+    }
+    
+    .form-text {
+      color: #6c757d;
+      font-size: 0.875rem;
+    }
   </style>
 </head>
 <body>
-<nav class="navbar navbar-expand-lg" style="background:transparent;">
+<nav class="navbar navbar-expand-lg">
   <div class="container">
     <div class="d-flex align-items-center gap-3">
       <a class="btn-back" href="{{ url_for('index') }}">← Voltar</a>
-      <a class="navbar-brand brand" href="{{ url_for('index') }}">💠 Organizador de Contas</a>
+      <a class="navbar-brand brand" href="{{ url_for('index') }}">💎 Organizador de Contas</a>
     </div>
   </div>
 </nav>
@@ -1534,9 +1930,9 @@ TEMPLATE_CADASTRAR = """
 <div class="container py-4">
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
-      <div class="mb-2">
+      <div class="mb-4">
       {% for cat, msg in messages %}
-        <div class="alert alert-{{ 'info' if cat=='info' else cat }} alert-dismissible fade show" role="alert">
+        <div class="alert alert-{{ 'info' if cat=='info' else cat }} alert-dismissible fade show modern-card" role="alert">
           {{ msg }}
           <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         </div>
@@ -1546,95 +1942,136 @@ TEMPLATE_CADASTRAR = """
   {% endwith %}
 
   <div class="row justify-content-center">
-    <div class="col-lg-7">
-      <div class="card card-royal p-3">
-        <h5>{% if form.id %}Editar Conta{% else %}Nova Conta{% endif %}</h5>
-        <form method="post" class="mt-3">
-          <div class="mb-3">
-            <label class="form-label">Nome da conta</label>
-            <input name="name" class="form-control" required placeholder="ex: Luz, Água, Internet" autofocus value="{{ form.name }}">
+    <div class="col-lg-8">
+      <div class="modern-card p-4 mb-4">
+        <h4 class="text-glow mb-4">
+          {% if form.id %}✏️ Editar Conta{% else %}➕ Nova Conta{% endif %}
+        </h4>
+        
+        <form method="post">
+          <div class="row">
+            <div class="col-md-6 mb-3">
+              <label class="form-label">📝 Nome da Conta</label>
+              <input name="name" class="form-control" required placeholder="Ex: Luz, Água, Internet..." autofocus value="{{ form.name }}">
+            </div>
+            
+            <div class="col-md-6 mb-3">
+              <label class="form-label">📂 Categoria</label>
+              <select name="category" class="form-select" required>
+                {% for cat in categories %}
+                  <option value="{{ cat.name }}" {% if cat.name == form.category %}selected{% endif %}>{{ cat.icon }} {{ cat.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="col-md-6 mb-3">
+              <label class="form-label">💰 Valor</label>
+              <input name="value" class="form-control" required placeholder="Ex: 150,50" inputmode="decimal" value="{{ form.value }}">
+              <div class="form-text">Use vírgula ou ponto para decimais</div>
+            </div>
+            
+            <div class="col-md-6 mb-3">
+              <label class="form-label">📅 Mês de Referência</label>
+              <input name="mes" type="month" class="form-control" value="{{ form.mes }}" required>
+            </div>
           </div>
 
           <div class="mb-3">
-            <label class="form-label">Categoria</label>
-            <select name="category" class="form-select" required>
-              {% for cat in categories %}
-                <option value="{{ cat.name }}" {% if cat.name == form.category %}selected{% endif %}>{{ cat.icon }} &nbsp; {{ cat.name }}</option>
-              {% endfor %}
+            <label class="form-label">📝 Observações</label>
+            <textarea name="notes" class="form-control" rows="3" placeholder="Observações adicionais...">{{ form.notes }}</textarea>
+          </div>
+
+          <hr class="my-4">
+
+          <div class="row">
+            <div class="col-md-6">
+              <h5 class="text-glow">🔄 Recorrência</h5>
+              
+              <div class="form-check mb-3">
+                <input type="checkbox" class="form-check-input" id="recorrente_indef" name="recorrente_indef" onchange="toggleRecorrenciaOptions()" {% if form.recorrente_indef %}checked{% endif %}>
+                <label class="form-check-label" for="recorrente_indef">
+                  Recorrente Indefinida
+                </label>
+                <div class="form-text">Gera próxima fatura com valor R$ 0,00</div>
+              </div>
+
+              <div id="recorrenciaMonthsBox" style="display: {% if not form.recorrente_indef %}block{% else %}none{% endif %};">
+                <label class="form-label">Recorrência por X meses</label>
+                <input name="recorrencia_months" type="number" min="0" max="24" class="form-control" placeholder="Ex: 6" value="{{ form.recorrencia_months }}">
+                <div class="form-text">Gera cópias mantendo valor do mês anterior</div>
+              </div>
+            </div>
+
+            <div class="col-md-6">
+              <h5 class="text-glow">📦 Parcelamento</h5>
+              
+              <div class="form-check mb-3">
+                <input type="checkbox" class="form-check-input" id="parcelada" name="parcelada" onchange="toggleParcelas(this)" {% if form.parcelada %}checked{% endif %}>
+                <label class="form-check-label" for="parcelada">
+                  Conta Parcelada
+                </label>
+              </div>
+
+              <div id="parcelasBox" style="display: {% if form.parcelada %}block{% else %}none{% endif %};">
+                <label class="form-label">Número de Parcelas</label>
+                <input name="parcelas" type="number" min="1" max="24" class="form-control" value="{{ form.parcelas or 1 }}">
+                <div class="form-text">Valor será dividido automaticamente</div>
+              </div>
+            </div>
+          </div>
+
+          <hr class="my-4">
+
+          <div class="d-flex gap-3 justify-content-end">
+            <a class="btn btn-outline-modern" href="{{ url_for('index') }}">❌ Cancelar</a>
+            <button class="btn btn-modern" type="submit">
+              {% if form.id %}✅ Atualizar{% else %}💾 Salvar{% endif %}
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Adicionar Categoria Rápida -->
+      <div class="modern-card p-4">
+        <h5 class="text-glow">🚀 Adicionar Categoria Rápida</h5>
+        <form method="post" action="{{ url_for('add_category') }}" class="row g-3 align-items-end">
+          <div class="col-md-5">
+            <label class="form-label">📝 Nome</label>
+            <input name="new_category" class="form-control" placeholder="Nova categoria" required>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">🎨 Ícone</label>
+            <select name="icon_choice" class="form-select">
+              <option value="📂">📂 Padrão</option>
+              <option value="💡">💡 Luz</option>
+              <option value="💧">💧 Água</option>
+              <option value="🌐">🌐 Internet</option>
+              <option value="🛒">🛒 Mercado</option>
+              <option value="💳">💳 Cartão</option>
+              <option value="🍔">🍔 Alimentação</option>
+              <option value="🚗">🚗 Transporte</option>
+              <option value="🎵">🎵 Streaming</option>
+              <option value="🏥">🏥 Saúde</option>
+              <option value="🎉">🎉 Lazer</option>
+              <option value="💻">💻 Tecnologia</option>
+              <option value="🧾">🧾 Outros</option>
             </select>
           </div>
-
-          <div class="mb-3">
-            <label class="form-label">Valor</label>
-            <input name="value" class="form-control" required placeholder="ex: 150.50 ou 150,50" inputmode="decimal" value="{{ form.value }}">
-            <div class="form-text small-muted">Digite números (ex: 150.50 ou 150,50). Será validado ao salvar.</div>
-          </div>
-
-          <div class="mb-3">
-            <label class="form-label">Mês de referência</label>
-            <input name="mes" type="month" class="form-control" value="{{ form.mes }}" required>
-            <div class="form-text small-muted">A conta será atribuída ao mês selecionado (YYYY-MM)</div>
-          </div>
-
-          <hr>
-          <div class="mb-3 form-check">
-            <input type="checkbox" class="form-check-input" id="recorrente_indef" name="recorrente_indef" onchange="toggleRecorrenciaOptions()" {% if form.recorrente_indef %}checked{% endif %}>
-            <label class="form-check-label" for="recorrente_indef">Recorrente (indefinida) — gera a próxima fatura com valor = 0</label>
-          </div>
-
-          <div class="mb-3" id="recorrenciaMonthsBox" style="display: {% if not form.recorrente_indef %}block{% else %}none{% endif %};">
-            <label class="form-label">Recorrência por X meses (opcional)</label>
-            <input name="recorrencia_months" type="number" min="0" class="form-control" placeholder="Ex: 6 (deixe 0 para não usar)" value="{{ form.recorrencia_months }}">
-            <div class="form-text small-muted">Se >0, gera cópias pelos próximos X meses mantendo o valor do mês anterior.</div>
-          </div>
-
-          <div class="mb-3 form-check">
-            <input type="checkbox" class="form-check-input" id="parcelada" name="parcelada" onchange="toggleParcelas(this)" {% if form.parcelada %}checked{% endif %}>
-            <label class="form-check-label" for="parcelada">Parcelada</label>
-          </div>
-
-          <div class="mb-3" id="parcelasBox" style="display: {% if form.parcelada %}block{% else %}none{% endif %};">
-            <label class="form-label">Número de parcelas</label>
-            <input name="parcelas" type="number" min="1" class="form-control" value="{{ form.parcelas or 1 }}">
-            <div class="form-text small-muted">Se >1, o valor será dividido e as próximas parcelas serão geradas automaticamente.</div>
-          </div>
-
-          <div class="mb-3">
-            <label class="form-label">Observações (opcional)</label>
-            <textarea name="notes" class="form-control" rows="2">{{ form.notes }}</textarea>
-          </div>
-
-          <div class="d-flex gap-2">
-            <button class="btn btn-royal" type="submit">{% if form.id %}Atualizar{% else %}Salvar{% endif %}</button>
-            <a class="btn btn-outline-secondary" href="{{ url_for('index') }}">Cancelar</a>
+          <div class="col-md-3">
+            <button class="btn btn-modern w-100" type="submit">➕ Adicionar</button>
           </div>
         </form>
       </div>
-
-      <div class="card card-royal p-3 mt-3">
-        <h6>Adicionar categoria rápida</h6>
-        <form method="post" action="{{ url_for('add_category') }}" class="d-flex gap-2">
-          <input name="new_category" class="form-control" placeholder="Nova categoria" required>
-          <select name="icon_choice" class="form-select" style="max-width:110px">
-            <option value="📂">📂</option><option value="💡">💡</option><option value="💧">💧</option>
-            <option value="🌐">🌐</option><option value="🛒">🛒</option><option value="💳">💳</option>
-            <option value="👸">👸</option><option value="🍔">🍔</option><option value="🚗">🚗</option>
-            <option value="🎵">🎵</option><option value="✈️">✈️</option><option value="🏥">🏥</option>
-            <option value="📚">📚</option><option value="🎁">🎁</option><option value="🐾">🐾</option>
-            <option value="🏠">🏠</option><option value="🎉">🎉</option><option value="🏋️‍♀️">🏋️‍♀️</option>
-            <option value="💻">💻</option><option value="💼">💼</option><option value="💰">💰</option>
-            <option value="💸">💸</option><option value="🧾">🧾</option>
-          </select>
-          <button class="btn btn-royal" type="submit">Adicionar</button>
-        </form>
-      </div>
-
     </div>
   </div>
 </div>
 
-<footer class="container text-center mt-4">
-  <p class="small-muted">Aplicação local • Salva em <code>dados.json</code></p>
+<footer class="container text-center mt-4 pb-4">
+  <div class="modern-card p-3">
+    <p class="text-muted mb-0">🔒 Aplicação Local • Dados salvos em <code>dados.json</code></p>
+  </div>
 </footer>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
@@ -1648,13 +2085,12 @@ TEMPLATE_CADASTRAR = """
     const monthsBox = document.getElementById('recorrenciaMonthsBox');
     if(indefCb.checked){
       monthsBox.style.display = 'none';
-      monthsBox.querySelector('input').value = 0; // Zera o campo se indefinido for marcado
+      monthsBox.querySelector('input').value = 0;
     } else {
       monthsBox.style.display = 'block';
     }
   }
 
-  // Inicializa o estado correto ao carregar a página
   document.addEventListener('DOMContentLoaded', toggleRecorrenciaOptions);
 </script>
 </body>
@@ -1668,5 +2104,7 @@ def inject_helpers():
 
 # ---------- Execução ----------
 if __name__ == "__main__":
-    print("Iniciando Organizador de Contas em http://127.0.0.1:5000 — usando", DATA_FILE)
+    print("🚀 Iniciando Organizador de Contas Moderno em http://127.0.0.1:5000")
+    print(f"📁 Dados salvos em: {DATA_FILE}")
+    print("✨ Interface repaginada com tema moderno!")
     app.run(debug=True, host="127.0.0.1", port=5000)
