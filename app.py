@@ -12,6 +12,9 @@ Revisado para:
  - CORREÇÃO: Problema de multiplicação por 100 nos valores corrigido
  - TEMA MODERNO: Interface repaginada com design contemporâneo
  - RESPONSIVO: Otimizado para PC e Mobile
+ - OTIMIZADO: Layout mais compacto para reduzir rolagem
+ - BOTÃO NOVA CONTA OTIMIZADO: Cor contrastante com o fundo do projeto
+ - INTERFACE COMPACTA: Campos e espaçamentos reduzidos para melhor aproveitamento do espaço
 Compatível com Python 3.9+ e Flask
 """
 from flask import Flask, request, redirect, url_for, flash, render_template_string, jsonify
@@ -538,43 +541,49 @@ HTML_TEMPLATE = """
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
-            padding: 20px;
+            padding: 8px;
+            font-size: 14px;
         }
         
         .container {
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
             background: white;
-            border-radius: 20px;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            border-radius: 12px;
+            box-shadow: 0 15px 30px rgba(0,0,0,0.1);
             overflow: hidden;
         }
         
         .header {
             background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
             color: white;
-            padding: 30px;
+            padding: 12px 20px;
             text-align: center;
         }
         
         .header h1 {
-            font-size: 2.5rem;
-            margin-bottom: 10px;
+            font-size: 1.5rem;
+            margin-bottom: 3px;
             font-weight: 300;
         }
         
+        .header p {
+            font-size: 0.85rem;
+            opacity: 0.9;
+        }
+        
         .content {
-            padding: 30px;
+            padding: 12px;
         }
         
         .filters {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
-            padding: 20px;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 8px;
+            margin-bottom: 12px;
+            padding: 10px;
             background: #f8f9fa;
-            border-radius: 15px;
+            border-radius: 8px;
         }
         
         .form-group {
@@ -584,32 +593,33 @@ HTML_TEMPLATE = """
         
         .form-group label {
             font-weight: 600;
-            margin-bottom: 8px;
+            margin-bottom: 3px;
             color: #2c3e50;
+            font-size: 0.75rem;
         }
         
         .form-group input, .form-group select {
-            padding: 12px;
-            border: 2px solid #e9ecef;
-            border-radius: 10px;
-            font-size: 16px;
-            transition: all 0.3s ease;
+            padding: 6px 8px;
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            font-size: 13px;
+            transition: all 0.2s ease;
         }
         
         .form-group input:focus, .form-group select:focus {
             outline: none;
             border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
         }
         
         .btn {
-            padding: 12px 24px;
+            padding: 6px 12px;
             border: none;
-            border-radius: 10px;
-            font-size: 16px;
+            border-radius: 6px;
+            font-size: 12px;
             font-weight: 600;
             cursor: pointer;
-            transition: all 0.3s ease;
+            transition: all 0.2s ease;
             text-decoration: none;
             display: inline-block;
             text-align: center;
@@ -621,8 +631,8 @@ HTML_TEMPLATE = """
         }
         
         .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
         }
         
         .btn-success {
@@ -642,22 +652,22 @@ HTML_TEMPLATE = """
         
         .summary {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 10px;
+            margin-bottom: 12px;
         }
         
         .summary-card {
             background: white;
-            padding: 25px;
-            border-radius: 15px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-            border-left: 5px solid;
-            transition: transform 0.3s ease;
+            padding: 10px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            border-left: 3px solid;
+            transition: transform 0.2s ease;
         }
         
         .summary-card:hover {
-            transform: translateY(-5px);
+            transform: translateY(-2px);
         }
         
         .summary-card.pending {
@@ -673,34 +683,36 @@ HTML_TEMPLATE = """
         }
         
         .summary-card h3 {
-            font-size: 1.1rem;
+            font-size: 0.75rem;
             color: #666;
-            margin-bottom: 10px;
+            margin-bottom: 4px;
         }
         
         .summary-card .value {
-            font-size: 2rem;
+            font-size: 1.2rem;
             font-weight: bold;
             color: #2c3e50;
         }
         
         .accounts-grid {
             display: grid;
-            gap: 20px;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 10px;
         }
         
         .account-card {
             background: white;
-            border-radius: 15px;
-            padding: 25px;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.08);
-            border-left: 5px solid;
-            transition: all 0.3s ease;
+            border-radius: 8px;
+            padding: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            border-left: 3px solid;
+            transition: all 0.2s ease;
+            position: relative;
         }
         
         .account-card:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
         }
         
         .account-card.pending {
@@ -711,43 +723,42 @@ HTML_TEMPLATE = """
             border-left-color: #51cf66;
         }
         
-        .account-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 15px;
-        }
-        
         .account-title {
-            font-size: 1.3rem;
+            font-size: 0.95rem;
             font-weight: bold;
             color: #2c3e50;
-            margin-bottom: 5px;
+            margin-bottom: 4px;
+            line-height: 1.2;
+            padding-right: 60px;
         }
         
         .account-category {
             display: inline-flex;
             align-items: center;
-            padding: 5px 12px;
-            border-radius: 20px;
-            font-size: 0.9rem;
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-size: 0.65rem;
             font-weight: 600;
             color: white;
-            margin-bottom: 10px;
+            margin-bottom: 6px;
         }
         
         .account-amount {
-            font-size: 1.5rem;
+            font-size: 1.1rem;
             font-weight: bold;
             color: #2c3e50;
+            margin-bottom: 6px;
         }
         
         .account-status {
-            padding: 8px 16px;
-            border-radius: 20px;
-            font-size: 0.9rem;
+            padding: 3px 8px;
+            border-radius: 10px;
+            font-size: 0.65rem;
             font-weight: 600;
             text-transform: uppercase;
+            position: absolute;
+            top: 8px;
+            right: 8px;
         }
         
         .status-pending {
@@ -762,17 +773,17 @@ HTML_TEMPLATE = """
         
         .account-actions {
             display: flex;
-            gap: 10px;
-            margin-top: 15px;
+            gap: 4px;
+            margin-top: 8px;
             flex-wrap: wrap;
         }
         
         .account-meta {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 15px;
-            margin-top: 15px;
-            padding-top: 15px;
+            grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+            gap: 6px;
+            margin-top: 8px;
+            padding-top: 8px;
             border-top: 1px solid #eee;
         }
         
@@ -782,28 +793,29 @@ HTML_TEMPLATE = """
         }
         
         .meta-label {
-            font-size: 0.8rem;
+            font-size: 0.6rem;
             color: #666;
             text-transform: uppercase;
             font-weight: 600;
-            margin-bottom: 5px;
+            margin-bottom: 2px;
         }
         
         .meta-value {
-            font-size: 0.9rem;
+            font-size: 0.7rem;
             color: #2c3e50;
             font-weight: 500;
         }
         
         .flash-messages {
-            margin-bottom: 20px;
+            margin-bottom: 10px;
         }
         
         .flash-message {
-            padding: 15px 20px;
-            border-radius: 10px;
-            margin-bottom: 10px;
+            padding: 8px 12px;
+            border-radius: 6px;
+            margin-bottom: 6px;
             font-weight: 500;
+            font-size: 0.8rem;
         }
         
         .flash-success {
@@ -818,58 +830,153 @@ HTML_TEMPLATE = """
             border: 1px solid #f5c6cb;
         }
         
+        /* BOTÃO NOVA CONTA - Cor contrastante com o fundo roxo/azul */
         .add-account-btn {
             position: fixed;
-            bottom: 30px;
-            right: 30px;
-            width: 60px;
-            height: 60px;
+            bottom: 20px;
+            right: 20px;
+            width: 56px;
+            height: 56px;
             border-radius: 50%;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
             color: white;
             border: none;
             font-size: 24px;
+            font-weight: 300;
             cursor: pointer;
-            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.3);
-            transition: all 0.3s ease;
+            box-shadow: 0 8px 20px rgba(255, 107, 53, 0.4);
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
             z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-decoration: none;
+            overflow: hidden;
+        }
+        
+        .add-account-btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(135deg, #e74c3c 0%, #ff6b35 100%);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            border-radius: 50%;
         }
         
         .add-account-btn:hover {
-            transform: scale(1.1);
-            box-shadow: 0 15px 35px rgba(102, 126, 234, 0.4);
+            transform: scale(1.1) translateY(-2px);
+            box-shadow: 0 12px 30px rgba(255, 107, 53, 0.6);
+        }
+        
+        .add-account-btn:hover::before {
+            opacity: 1;
+        }
+        
+        .add-account-btn:active {
+            transform: scale(1.05) translateY(-1px);
+        }
+        
+        .add-account-btn span {
+            position: relative;
+            z-index: 2;
+        }
+        
+        /* Animação de pulso para chamar atenção */
+        @keyframes pulse {
+            0% {
+                box-shadow: 0 8px 20px rgba(255, 107, 53, 0.4);
+            }
+            50% {
+                box-shadow: 0 8px 20px rgba(255, 107, 53, 0.7);
+            }
+            100% {
+                box-shadow: 0 8px 20px rgba(255, 107, 53, 0.4);
+            }
+        }
+        
+        .add-account-btn {
+            animation: pulse 2s infinite;
+        }
+        
+        .add-account-btn:hover {
+            animation: none;
+        }
+        
+        .notes {
+            margin-top: 6px;
+            color: #666;
+            font-style: italic;
+            font-size: 0.75rem;
+            line-height: 1.3;
         }
         
         @media (max-width: 768px) {
             .container {
-                margin: 10px;
-                border-radius: 15px;
+                margin: 5px;
+                border-radius: 10px;
             }
             
             .content {
-                padding: 20px;
+                padding: 10px;
             }
             
             .filters {
                 grid-template-columns: 1fr;
+                gap: 6px;
             }
             
             .summary {
                 grid-template-columns: 1fr;
             }
             
-            .account-header {
-                flex-direction: column;
-                align-items: flex-start;
+            .accounts-grid {
+                grid-template-columns: 1fr;
             }
             
-            .account-actions {
-                justify-content: flex-start;
+            .account-status {
+                position: static;
+                margin-top: 6px;
+            }
+            
+            .account-title {
+                padding-right: 0;
             }
             
             .add-account-btn {
-                bottom: 20px;
-                right: 20px;
+                bottom: 15px;
+                right: 15px;
+                width: 50px;
+                height: 50px;
+                font-size: 20px;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            .btn {
+                padding: 4px 8px;
+                font-size: 11px;
+            }
+            
+            .account-card {
+                padding: 8px;
+            }
+            
+            .account-title {
+                font-size: 0.85rem;
+            }
+            
+            .account-amount {
+                font-size: 1rem;
+            }
+            
+            .add-account-btn {
+                width: 45px;
+                height: 45px;
+                font-size: 18px;
             }
         }
     </style>
@@ -937,24 +1044,19 @@ HTML_TEMPLATE = """
             <div class="accounts-grid">
                 {% for conta in contas %}
                     <div class="account-card {{ conta.status }}">
-                        <div class="account-header">
-                            <div>
-                                <div class="account-title">{{ conta.name }}</div>
-                                <div class="account-category" style="background-color: {{ conta.category_color }};">
-                                    {{ conta.category_icon }} {{ conta.category }}
-                                </div>
-                            </div>
-                            <div class="account-status status-{{ conta.status }}">
-                                {{ 'Paga' if conta.status == 'paid' else 'Pendente' }}
-                            </div>
+                        <div class="account-status status-{{ conta.status }}">
+                            {{ 'Paga' if conta.status == 'paid' else 'Pendente' }}
+                        </div>
+                        
+                        <div class="account-title">{{ conta.name }}</div>
+                        <div class="account-category" style="background-color: {{ conta.category_color }};">
+                            {{ conta.category_icon }} {{ conta.category }}
                         </div>
                         
                         <div class="account-amount">{{ conta.amount_formatted }}</div>
                         
                         {% if conta.notes %}
-                            <div style="margin-top: 10px; color: #666; font-style: italic;">
-                                {{ conta.notes }}
-                            </div>
+                            <div class="notes">{{ conta.notes }}</div>
                         {% endif %}
                         
                         <div class="account-meta">
@@ -998,9 +1100,9 @@ HTML_TEMPLATE = """
                             <a href="{{ url_for('edit_conta', conta_id=conta.id) }}" class="btn btn-primary">Editar</a>
                             
                             {% if conta.status == 'pending' %}
-                                <a href="{{ url_for('mark_paid', conta_id=conta.id) }}" class="btn btn-success">Marcar como Paga</a>
+                                <a href="{{ url_for('mark_paid', conta_id=conta.id) }}" class="btn btn-success">Pagar</a>
                             {% else %}
-                                <a href="{{ url_for('mark_pending', conta_id=conta.id) }}" class="btn btn-warning">Desfazer Pagamento</a>
+                                <a href="{{ url_for('mark_pending', conta_id=conta.id) }}" class="btn btn-warning">Desfazer</a>
                             {% endif %}
                             
                             <a href="{{ url_for('delete_conta', conta_id=conta.id) }}" 
@@ -1012,7 +1114,7 @@ HTML_TEMPLATE = """
             </div>
             
             {% if not contas %}
-                <div style="text-align: center; padding: 50px; color: #666;">
+                <div style="text-align: center; padding: 30px; color: #666;">
                     <h3>Nenhuma conta encontrada</h3>
                     <p>Adicione uma nova conta para começar!</p>
                 </div>
@@ -1020,7 +1122,9 @@ HTML_TEMPLATE = """
         </div>
     </div>
     
-    <a href="{{ url_for('add_conta') }}" class="add-account-btn" title="Adicionar Conta">+</a>
+    <a href="{{ url_for('add_conta') }}" class="add-account-btn" title="Adicionar Nova Conta">
+        <span>+</span>
+    </a>
 </body>
 </html>
 """
@@ -1043,40 +1147,46 @@ FORM_TEMPLATE = """
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
-            padding: 20px;
+            padding: 10px;
+            font-size: 14px;
         }
         
         .container {
-            max-width: 800px;
+            max-width: 700px;
             margin: 0 auto;
             background: white;
-            border-radius: 20px;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            border-radius: 12px;
+            box-shadow: 0 15px 30px rgba(0,0,0,0.1);
             overflow: hidden;
         }
         
         .header {
             background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
             color: white;
-            padding: 30px;
+            padding: 20px;
             text-align: center;
         }
         
         .header h1 {
-            font-size: 2rem;
-            margin-bottom: 10px;
+            font-size: 1.5rem;
+            margin-bottom: 6px;
             font-weight: 300;
         }
         
+        .header p {
+            font-size: 0.9rem;
+            opacity: 0.9;
+        }
+        
         .content {
-            padding: 40px;
+            padding: 20px;
         }
         
         .form-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 25px;
-            margin-bottom: 30px;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
         }
         
         .form-group {
@@ -1086,36 +1196,36 @@ FORM_TEMPLATE = """
         
         .form-group label {
             font-weight: 600;
-            margin-bottom: 8px;
+            margin-bottom: 5px;
             color: #2c3e50;
-            font-size: 1rem;
+            font-size: 0.85rem;
         }
         
         .form-group input, .form-group select, .form-group textarea {
-            padding: 15px;
-            border: 2px solid #e9ecef;
-            border-radius: 10px;
-            font-size: 16px;
-            transition: all 0.3s ease;
+            padding: 10px;
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: all 0.2s ease;
             font-family: inherit;
         }
         
         .form-group textarea {
             resize: vertical;
-            min-height: 100px;
+            min-height: 70px;
         }
         
         .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
             outline: none;
             border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
         }
         
         .checkbox-group {
             display: flex;
             align-items: center;
-            gap: 10px;
-            margin-top: 10px;
+            gap: 8px;
+            margin-top: 8px;
         }
         
         .checkbox-group input[type="checkbox"] {
@@ -1124,18 +1234,18 @@ FORM_TEMPLATE = """
         }
         
         .btn {
-            padding: 15px 30px;
+            padding: 10px 20px;
             border: none;
-            border-radius: 10px;
-            font-size: 16px;
+            border-radius: 6px;
+            font-size: 14px;
             font-weight: 600;
             cursor: pointer;
-            transition: all 0.3s ease;
+            transition: all 0.2s ease;
             text-decoration: none;
             display: inline-block;
             text-align: center;
-            margin-right: 15px;
-            margin-bottom: 15px;
+            margin-right: 10px;
+            margin-bottom: 10px;
         }
         
         .btn-primary {
@@ -1144,8 +1254,8 @@ FORM_TEMPLATE = """
         }
         
         .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+            transform: translateY(-1px);
+            box-shadow: 0 6px 12px rgba(102, 126, 234, 0.3);
         }
         
         .btn-secondary {
@@ -1155,25 +1265,26 @@ FORM_TEMPLATE = """
         
         .btn-secondary:hover {
             background: #5a6268;
-            transform: translateY(-2px);
+            transform: translateY(-1px);
         }
         
         .actions {
             display: flex;
-            gap: 15px;
-            margin-top: 30px;
+            gap: 10px;
+            margin-top: 20px;
             flex-wrap: wrap;
         }
         
         .flash-messages {
-            margin-bottom: 20px;
+            margin-bottom: 15px;
         }
         
         .flash-message {
-            padding: 15px 20px;
-            border-radius: 10px;
-            margin-bottom: 10px;
+            padding: 10px 15px;
+            border-radius: 6px;
+            margin-bottom: 8px;
             font-weight: 500;
+            font-size: 0.85rem;
         }
         
         .flash-error {
@@ -1185,24 +1296,29 @@ FORM_TEMPLATE = """
         .conditional-fields {
             display: none;
             grid-column: 1 / -1;
-            padding: 20px;
+            padding: 15px;
             background: #f8f9fa;
-            border-radius: 10px;
-            margin-top: 15px;
+            border-radius: 6px;
+            margin-top: 10px;
         }
         
         .conditional-fields.show {
             display: block;
         }
         
+        .conditional-fields h4 {
+            margin-bottom: 10px;
+            font-size: 0.9rem;
+        }
+        
         @media (max-width: 768px) {
             .container {
-                margin: 10px;
-                border-radius: 15px;
+                margin: 5px;
+                border-radius: 10px;
             }
             
             .content {
-                padding: 20px;
+                padding: 15px;
             }
             
             .form-grid {
@@ -1290,8 +1406,8 @@ FORM_TEMPLATE = """
                         </div>
                         
                         <div id="recurrence-fields" class="conditional-fields">
-                            <h4 style="margin-bottom: 15px;">Configurações de Recorrência</h4>
-                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+                            <h4>Configurações de Recorrência</h4>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px;">
                                 <div class="form-group">
                                     <label for="rec_type">Tipo de Recorrência</label>
                                     <select id="rec_type" name="rec_type">
@@ -1307,13 +1423,13 @@ FORM_TEMPLATE = """
                                     <label for="recorrencia_months">Duração (meses)</label>
                                     <input type="number" id="recorrencia_months" name="recorrencia_months" 
                                            value="{{ conta.recorrencia_months if conta else 12 }}" min="1" max="120">
-                                    <small style="color: #666; margin-top: 5px;">Deixe em branco para indefinido</small>
+                                    <small style="color: #666; margin-top: 3px; font-size: 0.75rem;">Deixe em branco para indefinido</small>
                                 </div>
                             </div>
                         </div>
                         
                         <div id="installment-fields" class="conditional-fields">
-                            <h4 style="margin-bottom: 15px;">Configurações de Parcelamento</h4>
+                            <h4>Configurações de Parcelamento</h4>
                             <div class="form-group">
                                 <label for="parcelas">Número de Parcelas</label>
                                 <input type="number" id="parcelas" name="parcelas" 
@@ -1366,7 +1482,7 @@ FORM_TEMPLATE = """
             if (value.length > 0) {
                 value = (parseInt(value) / 100).toFixed(2);
                 value = value.replace('.', ',');
-                value = value.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+                value = value.replace(/\B(?=(\d{3})+(?!d))/g, '.');
                 e.target.value = 'R$ ' + value;
             }
         });
