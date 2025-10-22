@@ -534,7 +534,23 @@ HTML_TEMPLATE = """
         .summary-card .value { font-size:1.2rem; font-weight:bold; color:#2c3e50; }
 
         .accounts-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap:10px; }
-        .account-card { background:white; border-radius:8px; padding:10px; box-shadow:0 2px 8px rgba(0,0,0,0.06); border-left:3px solid; position:relative; }
+        .account-card { background: #ffffff; /* default, vai ser sobrescrito abaixo */
+    border-radius: 8px;
+    padding: 10px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    position: relative;
+    border-left: none !important;
+    transition: background-color 0.2s ease;
+}
+
+/* Conta pendente = vermelho clarinho */
+.account-card.pending {
+    background: rgba(255, 0, 0, 0.06); /* #ff0000 com transparência ~6% */
+}
+
+/* Conta paga = verde clarinho */
+.account-card.paid {
+    background: rgba(0, 128, 0, 0.06); /* #008000 com transparência ~6% */; }
         .account-title { font-size:0.95rem; font-weight:bold; color:#2c3e50; margin-bottom:4px; line-height:1.2; padding-right:60px; }
         .account-category { display:inline-flex; align-items:center; padding:2px 6px; border-radius:10px; font-size:0.65rem; font-weight:600; color:white; margin-bottom:6px; }
         .account-amount { font-size:1.1rem; font-weight:bold; color:#2c3e50; margin-bottom:6px; }
