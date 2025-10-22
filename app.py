@@ -15,6 +15,8 @@ Revisado para:
  - OTIMIZADO: Layout mais compacto para reduzir rolagem
  - BOTÃO NOVA CONTA OTIMIZADO: Cor contrastante com o fundo do projeto
  - INTERFACE COMPACTA: Campos e espaçamentos reduzidos para melhor aproveitamento do espaço
+ - CORREÇÃO: Campo "Valor Pago" adicionado na tela inicial
+ - CORREÇÃO: Botão "Salvar" funcionando corretamente na edição
 Compatível com Python 3.9+ e Flask
 """
 from flask import Flask, request, redirect, url_for, flash, render_template_string, jsonify
@@ -682,6 +684,10 @@ HTML_TEMPLATE = """
             border-left-color: #339af0;
         }
         
+        .summary-card.valor-pago {
+            border-left-color: #28a745;
+        }
+        
         .summary-card h3 {
             font-size: 0.75rem;
             color: #666;
@@ -1038,6 +1044,10 @@ HTML_TEMPLATE = """
                 <div class="summary-card total">
                     <h3>Valor Total</h3>
                     <div class="value">{{ summary.total_amount }}</div>
+                </div>
+                <div class="summary-card valor-pago">
+                    <h3>Valor Já Pago</h3>
+                    <div class="value">{{ summary.valor_pago }}</div>
                 </div>
             </div>
             
@@ -1422,7 +1432,7 @@ FORM_TEMPLATE = """
                                 <div class="form-group">
                                     <label for="recorrencia_months">Duração (meses)</label>
                                     <input type="number" id="recorrencia_months" name="recorrencia_months" 
-                                           value="{{ conta.recorrencia_months if conta else 12 }}" min="1" max="120">
+                                           value="{{ conta.recorrencia_months if conta else 12 }}" min="0" max="120">
                                     <small style="color: #666; margin-top: 3px; font-size: 0.75rem;">Deixe em branco para indefinido</small>
                                 </div>
                             </div>
@@ -1433,7 +1443,7 @@ FORM_TEMPLATE = """
                             <div class="form-group">
                                 <label for="parcelas">Número de Parcelas</label>
                                 <input type="number" id="parcelas" name="parcelas" 
-                                       value="{{ conta.parcelas if conta else 2 }}" min="2" max="60">
+                                       value="{{ conta.parcelas if conta else 2 }}" min="1" max="60">
                             </div>
                         </div>
                     {% endif %}
@@ -1441,7 +1451,7 @@ FORM_TEMPLATE = """
                 
                 <div class="actions">
                     <button type="submit" class="btn btn-primary">
-                        {{ 'Atualizar Conta' if conta else 'Adicionar Conta' }}
+                        {{ 'Salvar' if conta else 'Adicionar Conta' }}
                     </button>
                     <a href="{{ url_for('index') }}" class="btn btn-secondary">Cancelar</a>
                 </div>
@@ -1482,7 +1492,7 @@ FORM_TEMPLATE = """
             if (value.length > 0) {
                 value = (parseInt(value) / 100).toFixed(2);
                 value = value.replace('.', ',');
-                value = value.replace(/\B(?=(\d{3})+(?!d))/g, '.');
+                value = value.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
                 e.target.value = 'R$ ' + value;
             }
         });
@@ -1557,11 +1567,15 @@ def index():
     pending_count = sum(1 for c in contas_data if c['status'] == 'pending')
     paid_count = sum(1 for c in contas_data if c['status'] == 'paid')
     total_amount = sum(c['amount_decimal'] for c in contas_data)
+    
+    # Calcular valor total já pago (todas as contas pagas do mês)
+    valor_pago = sum(c['paid_amount'] or c['amount_decimal'] for c in contas_data if c['status'] == 'paid')
 
     summary = {
         'pending_count': pending_count,
         'paid_count': paid_count,
-        'total_amount': decimal_to_brl(total_amount)
+        'total_amount': decimal_to_brl(total_amount),
+        'valor_pago': decimal_to_brl(valor_pago)
     }
 
     return render_template_string(HTML_TEMPLATE,
