@@ -39,6 +39,7 @@ FIXED_CATEGORIES_DATA: List[Dict[str, str]] = [
     {"name": "Mercado", "icon": "🛒"},
     {"name": "Cartão", "icon": "💳"},
     {"name": "Manuela", "icon": "👸"},
+    {"name": "Antonio", "icon": "🤴"},
 ]
 DEFAULT_EXTRA_CATEGORY_DATA: Dict[str, str] = {"name": "Outros", "icon": "🧾"}
 
