@@ -1,38 +1,36 @@
-"""
-app.py — Organizador de Contas (versão com suporte a categorias dinâmicas e selector de emoji)
-
-Alterações principais integradas:
- - Fundo suave verde (#effff2) nos summary-cards
- - Flash com botão de fechar (remove sem reload)
- - Botão flutuante "Nova Categoria" ao lado do botão "Adicionar Nova Conta"
- - Rota /add_category com formulário (nome + emoji)
- - Seletor de emoji: input + grid de sugestões clicáveis
- - Salvamento da nova categoria em dados.json via DataManager.add_category
- - Ao criar categoria, redireciona para index e categoria já aparece no select
- - Estilo do botão "Nova Categoria" em degradê verde (complementando o botão laranja)
-
-Use localmente: `python app.py`
-"""
+# app.py — Versão completa com PostgreSQL (SQLAlchemy) e templates inline
+# Requisitos: Flask, Flask-SQLAlchemy, psycopg2-binary
 
 from flask import Flask, request, redirect, url_for, flash, render_template_string, jsonify
-import json
+from flask_sqlalchemy import SQLAlchemy
 import os
 import uuid
 import calendar
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from datetime import datetime, date
-import threading
 import hashlib
-from typing import List, Dict, Any, Optional
 
+# ---------- Configuração do app ----------
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "troque_essa_chave_para_uma_aleatoria_e_complexa_em_producao")
 
-# ---------- Constantes e Configurações ----------
-DATA_FILE = "dados.json"
-DATA_LOCK = threading.Lock()
+# DATABASE_URL deve vir das Env Vars no Render
+DATABASE_URL = os.environ.get("DATABASE_URL")
+if not DATABASE_URL:
+    # fallback local para desenvolvimento
+    DATABASE_URL = "sqlite:///dados.db"
 
-FIXED_CATEGORIES_DATA: List[Dict[str, str]] = [
+# Ajuste para SQLAlchemy aceitar URLs que começam com "postgres://"
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
+db = SQLAlchemy(app)
+
+# ---------- Constantes (categorias padrão) ----------
+FIXED_CATEGORIES_DATA = [
     {"name": "Luz", "icon": "💡"},
     {"name": "Água", "icon": "💧"},
     {"name": "Internet", "icon": "🌐"},
@@ -41,10 +39,10 @@ FIXED_CATEGORIES_DATA: List[Dict[str, str]] = [
     {"name": "Manuela", "icon": "👸"},
     {"name": "Antonio", "icon": "🤴"},
 ]
-DEFAULT_EXTRA_CATEGORY_DATA: Dict[str, str] = {"name": "Outros", "icon": "🧾"}
+DEFAULT_EXTRA_CATEGORY_DATA = {"name": "Outros", "icon": "🧾"}
 
 # ---------- Utilitários ----------
-def money_to_decimal(value_str: Optional[str]) -> Decimal:
+def money_to_decimal(value_str):
     """Converte uma string monetária (BR/US) para Decimal."""
     if value_str is None:
         raise InvalidOperation("Valor monetário não pode ser nulo.")
@@ -58,8 +56,7 @@ def money_to_decimal(value_str: Optional[str]) -> Decimal:
         v = "0.00"
     return Decimal(v).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
-def decimal_to_brl(d: Optional[Decimal]) -> str:
-    """Converte Decimal para string formatada em BRL."""
+def decimal_to_brl(d):
     try:
         if d is None:
             raise InvalidOperation
@@ -69,10 +66,10 @@ def decimal_to_brl(d: Optional[Decimal]) -> str:
         q = "0,00"
     return "R$ " + q
 
-def month_key_from_date(dt: date) -> str:
+def month_key_from_date(dt):
     return dt.strftime("%Y-%m")
 
-def parse_month_input(s: Optional[str]) -> Optional[date]:
+def parse_month_input(s):
     if not s:
         return None
     try:
@@ -83,14 +80,14 @@ def parse_month_input(s: Optional[str]) -> Optional[date]:
     except (ValueError, IndexError):
         return None
 
-def add_months(sourcedate: date, months: int) -> date:
+def add_months(sourcedate, months):
     month = sourcedate.month - 1 + months
     year = sourcedate.year + month // 12
     month = month % 12 + 1
     day = min(sourcedate.day, calendar.monthrange(year, month)[1])
     return date(year, month, day)
 
-def split_amount_into_installments(amount: Decimal, n: int) -> List[Decimal]:
+def split_amount_into_installments(amount, n):
     if n <= 1:
         return [amount.quantize(Decimal("0.01"))]
     amount = amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
@@ -102,14 +99,14 @@ def split_amount_into_installments(amount: Decimal, n: int) -> List[Decimal]:
         parts[-1] = (parts[-1] + diff).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     return parts
 
-def color_for_category(name: str) -> str:
-    h = int(hashlib.sha1(name.encode("utf-8")).hexdigest()[:8], 16)
+def color_for_category(name):
+    h = int(hashlib.sha1((name or "").encode("utf-8")).hexdigest()[:8], 16)
     hue = h % 360
     sat = 70
     light = 50
     return hsl_to_hex(hue, sat, light)
 
-def hsl_to_hex(h: int, s: int, l: int) -> str:
+def hsl_to_hex(h, s, l):
     s /= 100.0
     l /= 100.0
     c = (1 - abs(2 * l - 1)) * s
@@ -126,342 +123,185 @@ def hsl_to_hex(h: int, s: int, l: int) -> str:
     b = int((b1 + m) * 255)
     return '#{:02x}{:02x}{:02x}'.format(r, g, b)
 
-# ---------- Classes ----------
-class Category:
-    def __init__(self, name: str, icon: str = "📂"):
-        if not name:
-            raise ValueError("O nome da categoria não pode ser vazio.")
-        self.name: str = name
-        self.icon: str = icon
+# ---------- Models ----------
+class Category(db.Model):
+    __tablename__ = "categories"
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), unique=True, nullable=False)
+    icon = db.Column(db.String(10), nullable=False, default="📂")
 
-    def to_dict(self) -> Dict[str, str]:
+    def to_dict(self):
         return {"name": self.name, "icon": self.icon}
 
-    @staticmethod
-    def from_dict(data: Dict[str, Any]) -> 'Category':
-        return Category(name=data["name"], icon=data.get("icon", "📂"))
+class ContaModel(db.Model):
+    __tablename__ = "contas"
+    id = db.Column(db.String(64), primary_key=True)
+    name = db.Column(db.String(300), nullable=False)
+    amount_decimal = db.Column(db.Numeric(14, 2), nullable=False, default=0)
+    month = db.Column(db.String(7), nullable=False)  # YYYY-MM
+    category = db.Column(db.String(200), nullable=False, default=DEFAULT_EXTRA_CATEGORY_DATA["name"])
+    notes = db.Column(db.Text, nullable=True)
+    status = db.Column(db.String(20), nullable=False, default="pending")
+    paid_at = db.Column(db.DateTime, nullable=True)
+    paid_amount = db.Column(db.Numeric(14, 2), nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    recorrente = db.Column(db.Boolean, nullable=False, default=False)
+    rec_type = db.Column(db.String(20), nullable=True)
+    recorrencia_months = db.Column(db.Integer, nullable=False, default=0)
+    rec_origin = db.Column(db.String(64), nullable=True)
+    parcelada = db.Column(db.Boolean, nullable=False, default=False)
+    parcelas = db.Column(db.Integer, nullable=False, default=1)
+    parcel_index = db.Column(db.Integer, nullable=True)
+    parcel_total = db.Column(db.Integer, nullable=True)
 
-class Conta:
-    def __init__(self,
-                 name: str,
-                 amount_decimal: Decimal,
-                 month: str,
-                 category: str = "Outros",
-                 notes: str = "",
-                 status: str = "pending",
-                 paid_at: Optional[datetime] = None,
-                 paid_amount: Optional[Decimal] = None,
-                 created_at: Optional[datetime] = None,
-                 recorrente: bool = False,
-                 rec_type: Optional[str] = None,
-                 recorrencia_months: int = 0,
-                 rec_origin: Optional[str] = None,
-                 parcelada: bool = False,
-                 parcelas: int = 1,
-                 parcel_index: Optional[int] = None,
-                 parcel_total: Optional[int] = None,
-                 id: Optional[str] = None):
-
-        if not name:
-            raise ValueError("O nome da conta não pode ser vazio.")
-        if not parse_month_input(month):
-            raise ValueError("Formato de mês inválido (esperado YYYY-MM).")
-        if amount_decimal < Decimal("0"):
-            raise ValueError("O valor da conta não pode ser negativo.")
-
-        self.id: str = id if id else str(uuid.uuid4())
-        self.name: str = name
-        self.amount_decimal: Decimal = amount_decimal.quantize(Decimal("0.01"))
-        self.month: str = month
-        self.category: str = category
-        self.notes: str = notes
-        self.status: str = status
-        self.paid_at: Optional[datetime] = paid_at
-        self.paid_amount: Optional[Decimal] = paid_amount.quantize(Decimal("0.01")) if paid_amount else None
-        self.created_at: datetime = created_at if created_at else datetime.now()
-        self.recorrente: bool = recorrente
-        self.rec_type: Optional[str] = rec_type
-        self.recorrencia_months: int = max(0, recorrencia_months)
-        self.rec_origin: Optional[str] = rec_origin
-        self.parcelada: bool = parcelada
-        self.parcelas: int = max(1, parcelas)
-        self.parcel_index: Optional[int] = parcel_index
-        self.parcel_total: Optional[int] = parcel_total
-
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self):
         return {
             "id": self.id,
             "name": self.name,
-            "amount_decimal": str(self.amount_decimal),
+            "amount_decimal": Decimal(self.amount_decimal or 0),
             "month": self.month,
             "category": self.category,
             "notes": self.notes,
             "status": self.status,
-            "paid_at": self.paid_at.isoformat() if self.paid_at else None,
-            "paid_amount": str(self.paid_amount) if self.paid_amount else None,
-            "created_at": self.created_at.isoformat(),
-            "recorrente": self.recorrente,
+            "paid_at": self.paid_at,
+            "paid_amount": Decimal(self.paid_amount) if self.paid_amount is not None else None,
+            "created_at": self.created_at,
+            "recorrente": bool(self.recorrente),
             "rec_type": self.rec_type,
-            "recorrencia_months": self.recorrencia_months,
+            "recorrencia_months": int(self.recorrencia_months or 0),
             "rec_origin": self.rec_origin,
-            "parcelada": self.parcelada,
-            "parcelas": self.parcelas,
+            "parcelada": bool(self.parcelada),
+            "parcelas": int(self.parcelas or 1),
             "parcel_index": self.parcel_index,
             "parcel_total": self.parcel_total,
         }
 
-    @staticmethod
-    def from_dict(data: Dict[str, Any]) -> 'Conta':
-        amount_raw = data.get("amount_decimal") or data.get("valor") or data.get("value") or "0.00"
-        if isinstance(amount_raw, (Decimal, int, float)):
-            amount_raw = str(amount_raw)
-        amount = money_to_decimal(amount_raw)
-        paid_amount = None
-        paid_amount_raw = data.get("paid_amount")
-        if paid_amount_raw is not None and paid_amount_raw != "":
-            try:
-                if isinstance(paid_amount_raw, (int, float, Decimal)):
-                    paid_amount = Decimal(str(paid_amount_raw)).quantize(Decimal("0.01"))
-                else:
-                    paid_amount = money_to_decimal(str(paid_amount_raw))
-            except (InvalidOperation, ValueError):
-                paid_amount = None
-        created_at_str = data.get("created_at")
-        created_at = datetime.fromisoformat(created_at_str) if created_at_str else datetime.now()
-        paid_at_str = data.get("paid_at")
-        paid_at = datetime.fromisoformat(paid_at_str) if paid_at_str else None
-        recorrente = bool(data.get("recorrente") or data.get("rec_type") in ("fixed", "indef") or int(data.get("recorrencia_months", 0) or 0) > 0)
-        parcelada = bool(data.get("parcelada") or int(data.get("parcelas", 1) or 1) > 1)
+# ---------- Banco: criação e inserção categorias padrão ----------
+with app.app_context():
+    db.create_all()
+    # inserir categorias padrão se tabela vazia
+    if Category.query.count() == 0:
+        default_list = [Category(name=c["name"], icon=c.get("icon", "📂")) for c in FIXED_CATEGORIES_DATA]
+        default_list.append(Category(name=DEFAULT_EXTRA_CATEGORY_DATA["name"], icon=DEFAULT_EXTRA_CATEGORY_DATA["icon"]))
+        db.session.bulk_save_objects(default_list)
+        db.session.commit()
 
-        return Conta(
-            id=data.get("id"),
-            name=data.get("name") or data.get("title") or "Sem título",
-            amount_decimal=amount,
-            month=data.get("month") or created_at.strftime("%Y-%m"),
-            category=data.get("category") or "Outros",
-            notes=data.get("notes", ""),
-            status=data.get("status", "pending"),
-            paid_at=paid_at,
-            paid_amount=paid_amount,
-            created_at=created_at,
-            recorrente=recorrente,
-            rec_type=data.get("rec_type"),
-            recorrencia_months=int(data.get("recorrencia_months", 0) or 0),
-            rec_origin=data.get("rec_origin"),
-            parcelada=parcelada,
-            parcelas=int(data.get("parcelas", 1) or 1),
-            parcel_index=data.get("parcel_index"),
-            parcel_total=data.get("parcel_total")
-        )
+# ---------- Função para garantir recorrências no mês (versão DB) ----------
+def ensure_recurring_for_month(month_key):
+    """
+    Replica a lógica antiga: para cada conta de origem (rec_type in inde/fixed)
+    cria instâncias no mês alvo caso não existam.
+    """
+    try:
+        origin_contas = ContaModel.query.filter(ContaModel.rec_type.in_(["indef", "fixed"])).all()
+    except Exception:
+        origin_contas = []
 
-# ---------- Data Manager (carrega/salva JSON) ----------
-class DataManager:
-    def __init__(self, file_path: str):
-        self.file_path: str = file_path
-        self._ensure_datafile()
-        self._data: Dict[str, Any] = self._load_from_file()
+    contas_to_add = []
 
-    def _ensure_datafile(self):
-        if not os.path.exists(self.file_path):
-            base_data = {
-                "contas": [],
-                "categories": [c.to_dict() for c in self._get_default_categories()]
-            }
-            with DATA_LOCK:
-                with open(self.file_path, "w", encoding="utf-8") as f:
-                    json.dump(base_data, f, ensure_ascii=False, indent=2)
+    for origin_conta in origin_contas:
+        if origin_conta.rec_origin:
+            # só consideramos origens (contas master sem rec_origin)
+            continue
+        rec_type = origin_conta.rec_type
+        rec_months = int(origin_conta.recorrencia_months or 0)
+        origin_date = parse_month_input(origin_conta.month)
+        target_date = parse_month_input(month_key)
+        if not origin_date or not target_date or target_date < origin_date:
+            continue
 
-    def _get_default_categories(self) -> List[Category]:
-        return [Category(c["name"], c["icon"]) for c in FIXED_CATEGORIES_DATA] + [Category(DEFAULT_EXTRA_CATEGORY_DATA["name"], DEFAULT_EXTRA_CATEGORY_DATA["icon"])]
+        # verifica se já existe instância desse recorrente no mês
+        exists = ContaModel.query.filter(
+            ContaModel.month == month_key,
+            db.or_(
+                ContaModel.rec_origin == origin_conta.id,
+                db.and_(ContaModel.rec_origin.is_(None),
+                        ContaModel.name == origin_conta.name,
+                        ContaModel.id != origin_conta.id,
+                        ContaModel.month == origin_conta.month)
+            )
+        ).first()
+        if exists:
+            continue
 
-    def _load_from_file(self) -> Dict[str, Any]:
-        self._ensure_datafile()
-        with DATA_LOCK:
-            with open(self.file_path, "r", encoding="utf-8") as f:
-                try:
-                    raw_data = json.load(f)
-                except json.JSONDecodeError:
-                    raw_data = {"contas": [], "categories": []}
-
-        loaded_cats_dict = {c["name"]: Category.from_dict(c) for c in raw_data.get("categories", []) if isinstance(c, dict) and c.get("name")}
-        normalized_categories: List[Category] = []
-        seen_cat_names = set()
-        for fc in self._get_default_categories():
-            if fc.name not in seen_cat_names:
-                normalized_categories.append(fc)
-                seen_cat_names.add(fc.name)
-        for cat_name, cat_obj in loaded_cats_dict.items():
-            if cat_name not in seen_cat_names:
-                normalized_categories.append(cat_obj)
-                seen_cat_names.add(cat_name)
-
-        normalized_contas: List[Conta] = []
-        for c_data in raw_data.get("contas", []):
-            try:
-                normalized_contas.append(Conta.from_dict(c_data))
-            except (ValueError, InvalidOperation) as e:
-                print(f"Erro ao carregar conta: {c_data}. Ignorando. Erro: {e}")
-
-        return {
-            "contas": normalized_contas,
-            "categories": normalized_categories
-        }
-
-    def _save_to_file(self):
-        serializable_data = {
-            "contas": [c.to_dict() for c in self._data["contas"]],
-            "categories": [c.to_dict() for c in self._data["categories"]]
-        }
-        with DATA_LOCK:
-            with open(self.file_path, "w", encoding="utf-8") as f:
-                json.dump(serializable_data, f, ensure_ascii=False, indent=2)
-
-    @property
-    def contas(self) -> List[Conta]:
-        return self._data.get("contas", [])
-
-    @contas.setter
-    def contas(self, new_contas: List[Conta]):
-        self._data["contas"] = new_contas
-        self._save_to_file()
-
-    @property
-    def categories(self) -> List[Category]:
-        return self._data.get("categories", [])
-
-    @categories.setter
-    def categories(self, new_categories: List[Category]):
-        self._data["categories"] = new_categories
-        self._save_to_file()
-
-    def get_conta_by_id(self, conta_id: str) -> Optional[Conta]:
-        return next((c for c in self.contas if c.id == conta_id), None)
-
-    def add_conta(self, conta: Conta):
-        current_contas = self.contas.copy()
-        current_contas.append(conta)
-        self.contas = current_contas
-
-    def update_conta(self, updated_conta: Conta):
-        current_contas = self.contas.copy()
-        for i, c in enumerate(current_contas):
-            if c.id == updated_conta.id:
-                current_contas[i] = updated_conta
-                self.contas = current_contas
-                return
-        raise ValueError(f"Conta com ID {updated_conta.id} não encontrada para atualização.")
-
-    def delete_conta(self, conta_id: str):
-        current_contas = self.contas.copy()
-        initial_count = len(current_contas)
-        current_contas = [c for c in current_contas if c.id != conta_id]
-        if len(current_contas) == initial_count:
-            raise ValueError(f"Conta com ID {conta_id} não encontrada para exclusão.")
-        self.contas = current_contas
-
-    def add_category(self, category: Category):
-        if any(c.name.lower() == category.name.lower() for c in self.categories):
-            raise ValueError(f"Categoria '{category.name}' já existe.")
-        current_categories = self.categories.copy()
-        current_categories.append(category)
-        self.categories = current_categories
-
-    def ensure_recurring_for_month(self, month_key: str):
-        contas_to_add: List[Conta] = []
-        for origin_conta in self.contas:
-            if origin_conta.rec_type in ("indef", "fixed") and not origin_conta.rec_origin:
-                origin_id = origin_conta.id
-                rec_type = origin_conta.rec_type
-                rec_months = origin_conta.recorrencia_months
-                try:
-                    origin_date = parse_month_input(origin_conta.month)
-                    target_date = parse_month_input(month_key)
-                    if not origin_date or not target_date or target_date < origin_date:
-                        continue
-                except Exception:
-                    continue
-                exists = any(
-                    (c.month == month_key) and (
-                        c.rec_origin == origin_id or
-                        (not c.rec_origin and c.name == origin_conta.name and c.month == origin_conta.month and c.id != origin_id)
-                    )
-                    for c in self.contas
+        if rec_type == "indef":
+            inst_month = add_months(origin_date, 1)
+            if month_key_from_date(inst_month) == month_key:
+                new_id = str(uuid.uuid4())
+                new_conta = ContaModel(
+                    id=new_id,
+                    name=origin_conta.name,
+                    amount_decimal=Decimal("0.00"),
+                    month=month_key,
+                    category=origin_conta.category,
+                    notes=origin_conta.notes,
+                    recorrente=True,
+                    rec_type="indef",
+                    rec_origin=origin_conta.id,
+                    parcelada=False,
+                    parcelas=1
                 )
-                if exists:
-                    continue
-                if rec_type == "indef":
-                    inst_month = add_months(parse_month_input(origin_conta.month), 1)
-                    if month_key_from_date(inst_month) == month_key:
-                        new_conta = Conta(
-                            name=origin_conta.name,
-                            amount_decimal=Decimal("0.00"),
-                            month=month_key,
-                            category=origin_conta.category,
-                            notes=origin_conta.notes,
-                            recorrente=True,
-                            rec_type="indef",
-                            rec_origin=origin_id,
-                            parcelada=False,
-                            parcelas=1
+                contas_to_add.append(new_conta)
+        elif rec_type == "fixed" and rec_months > 0:
+            for i in range(1, rec_months):
+                next_date = add_months(origin_date, i)
+                next_month_key = month_key_from_date(next_date)
+                if next_month_key == month_key:
+                    # tenta pegar valor da parcela anterior, se existir
+                    prev_month_date = add_months(next_date, -1)
+                    prev_month_key_for_value = month_key_from_date(prev_month_date)
+                    prev_inst = ContaModel.query.filter(
+                        ContaModel.month == prev_month_key_for_value,
+                        db.or_(
+                            ContaModel.rec_origin == origin_conta.id,
+                            db.and_(ContaModel.rec_origin.is_(None),
+                                    ContaModel.name == origin_conta.name,
+                                    ContaModel.month == origin_conta.month)
                         )
-                        contas_to_add.append(new_conta)
-                elif rec_type == "fixed" and rec_months > 0:
-                    origin_date = parse_month_input(origin_conta.month)
-                    if not origin_date: continue
-                    for i in range(1, rec_months):
-                        next_date = add_months(origin_date, i)
-                        next_month_key = month_key_from_date(next_date)
-                        if next_month_key == month_key:
-                            prev_month_val = origin_conta.amount_decimal
-                            prev_date_for_value = add_months(next_date, -1)
-                            prev_month_key_for_value = month_key_from_date(prev_date_for_value)
-                            prev_inst = next((
-                                c for c in self.contas
-                                if c.month == prev_month_key_for_value and (
-                                    c.rec_origin == origin_id or
-                                    (not c.rec_origin and c.name == origin_conta.name and c.month == origin_conta.month)
-                                )
-                            ), None)
-                            if prev_inst:
-                                prev_month_val = prev_inst.amount_decimal
-                            fixed_exists = any(
-                                (c.month == month_key) and (
-                                    c.rec_origin == origin_id or
-                                    (not c.rec_origin and c.name == origin_conta.name and c.month == origin_conta.month)
-                                )
-                                for c in self.contas
-                            )
-                            if fixed_exists: continue
-                            new_conta = Conta(
-                                name=origin_conta.name,
-                                amount_decimal=prev_month_val,
-                                month=month_key,
-                                category=origin_conta.category,
-                                notes=origin_conta.notes,
-                                recorrente=True,
-                                rec_type="fixed",
-                                recorrencia_months=rec_months,
-                                rec_origin=origin_id,
-                                parcelada=False,
-                                parcelas=1
-                            )
-                            contas_to_add.append(new_conta)
+                    ).first()
+                    prev_month_val = Decimal(origin_conta.amount_decimal or 0)
+                    if prev_inst:
+                        prev_month_val = Decimal(prev_inst.amount_decimal or 0)
+                    # checa duplicidade
+                    fixed_exists = ContaModel.query.filter(
+                        ContaModel.month == month_key,
+                        db.or_(
+                            ContaModel.rec_origin == origin_conta.id,
+                            db.and_(ContaModel.rec_origin.is_(None),
+                                    ContaModel.name == origin_conta.name,
+                                    ContaModel.month == origin_conta.month)
+                        )
+                    ).first()
+                    if fixed_exists:
+                        continue
+                    new_id = str(uuid.uuid4())
+                    new_conta = ContaModel(
+                        id=new_id,
+                        name=origin_conta.name,
+                        amount_decimal=prev_month_val,
+                        month=month_key,
+                        category=origin_conta.category,
+                        notes=origin_conta.notes,
+                        recorrente=True,
+                        rec_type="fixed",
+                        recorrencia_months=rec_months,
+                        rec_origin=origin_conta.id,
+                        parcelada=False,
+                        parcelas=1
+                    )
+                    contas_to_add.append(new_conta)
 
-        if contas_to_add:
-            current_contas = self.contas.copy()
-            current_contas.extend(contas_to_add)
-            self.contas = current_contas
-
-# Inicializa o DataManager
-data_manager = DataManager(DATA_FILE)
+    if contas_to_add:
+        db.session.bulk_save_objects(contas_to_add)
+        db.session.commit()
 
 # Garantir recorrências para o mês atual ao iniciar a aplicação
 try:
-    data_manager.ensure_recurring_for_month(date.today().strftime("%Y-%m"))
+    ensure_recurring_for_month(date.today().strftime("%Y-%m"))
 except Exception as e:
     print(f"Erro ao gerar recorrências iniciais: {e}")
 
-# ---------- Templates ----------
+# ---------- Templates (inline: copiados do seu app original) ----------
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -852,284 +692,6 @@ CAT_FORM_TEMPLATE = """
 </html>
 """
 
-# ---------- Rotas ----------
-@app.route("/", methods=["GET"])
-def index():
-    sel_month = request.args.get("month") or date.today().strftime("%Y-%m")
-    sel_category_name = request.args.get("category") or "Todos"
-    q_search = (request.args.get("q") or "").strip().lower()
-
-    try:
-        data_manager.ensure_recurring_for_month(sel_month)
-        data_manager.ensure_recurring_for_month(date.today().strftime("%Y-%m"))
-    except Exception as e:
-        flash(f"Erro ao gerar recorrências: {e}")
-
-    contas = data_manager.contas
-    filtered_contas = []
-    for conta in contas:
-        if conta.month != sel_month:
-            continue
-        if sel_category_name != "Todos" and conta.category != sel_category_name:
-            continue
-        if q_search and q_search not in conta.name.lower():
-            continue
-        filtered_contas.append(conta)
-
-    contas_data = []
-    for conta in filtered_contas:
-        category_obj = next((c for c in data_manager.categories if c.name == conta.category), None)
-        category_icon = category_obj.icon if category_obj else "📂"
-        category_color = color_for_category(conta.category)
-        contas_data.append({
-            'id': conta.id,
-            'name': conta.name,
-            'amount_formatted': decimal_to_brl(conta.amount_decimal),
-            'amount_decimal': conta.amount_decimal,
-            'month': conta.month,
-            'category': conta.category,
-            'category_icon': category_icon,
-            'category_color': category_color,
-            'notes': conta.notes,
-            'status': conta.status,
-            'paid_at': conta.paid_at,
-            'paid_amount': conta.paid_amount,
-            'recorrente': conta.recorrente,
-            'rec_type': conta.rec_type,
-            'recorrencia_months': conta.recorrencia_months,
-            'parcelada': conta.parcelada,
-            'parcel_index': conta.parcel_index,
-            'parcel_total': conta.parcel_total
-        })
-
-    pending_count = sum(1 for c in contas_data if c['status'] == 'pending')
-    paid_count = sum(1 for c in contas_data if c['status'] == 'paid')
-    total_amount = sum(c['amount_decimal'] for c in contas_data)
-    valor_pago = sum(c['paid_amount'] or c['amount_decimal'] for c in contas_data if c['status'] == 'paid')
-
-    summary = {
-        'pending_count': pending_count,
-        'paid_count': paid_count,
-        'total_amount': decimal_to_brl(total_amount),
-        'valor_pago': decimal_to_brl(valor_pago)
-    }
-
-    return render_template_string(HTML_TEMPLATE,
-                                contas=contas_data,
-                                categories=data_manager.categories,
-                                selected_month=sel_month,
-                                selected_category=sel_category_name,
-                                search_query=request.args.get("q", ""),
-                                summary=summary,
-                                decimal_to_brl=decimal_to_brl)
-
-@app.route("/add", methods=["GET", "POST"])
-def add_conta():
-    if request.method == "POST":
-        try:
-            name = request.form.get("name", "").strip()
-            amount_str = request.form.get("amount", "").strip()
-            month = request.form.get("month", "").strip()
-            category = request.form.get("category", "Outros").strip()
-            notes = request.form.get("notes", "").strip()
-
-            recorrente = bool(request.form.get("recorrente"))
-            rec_type = request.form.get("rec_type") if recorrente else None
-            recorrencia_months = int(request.form.get("recorrencia_months", 0) or 0) if recorrente else 0
-
-            parcelada = bool(request.form.get("parcelada"))
-            parcelas = int(request.form.get("parcelas", 1) or 1) if parcelada else 1
-
-            if not name or not amount_str or not month:
-                flash("Nome, valor e mês são obrigatórios!")
-                return redirect(url_for("add_conta"))
-
-            amount_decimal = money_to_decimal(amount_str)
-
-            if parcelada and parcelas > 1:
-                installment_amounts = split_amount_into_installments(amount_decimal, parcelas)
-                base_month_date = parse_month_input(month)
-                for i, installment_amount in enumerate(installment_amounts):
-                    installment_month_date = add_months(base_month_date, i)
-                    installment_month = month_key_from_date(installment_month_date)
-                    conta = Conta(
-                        name=f"{name} ({i+1}/{parcelas})",
-                        amount_decimal=installment_amount,
-                        month=installment_month,
-                        category=category,
-                        notes=notes,
-                        recorrente=recorrente,
-                        rec_type=rec_type,
-                        recorrencia_months=recorrencia_months,
-                        parcelada=True,
-                        parcelas=parcelas,
-                        parcel_index=i+1,
-                        parcel_total=parcelas
-                    )
-                    data_manager.add_conta(conta)
-                flash(f"Conta parcelada adicionada com sucesso! ({parcelas} parcelas)")
-            else:
-                conta = Conta(
-                    name=name,
-                    amount_decimal=amount_decimal,
-                    month=month,
-                    category=category,
-                    notes=notes,
-                    recorrente=recorrente,
-                    rec_type=rec_type,
-                    recorrencia_months=recorrencia_months,
-                    parcelada=False,
-                    parcelas=1
-                )
-                data_manager.add_conta(conta)
-                flash("Conta adicionada com sucesso!")
-
-            return redirect(url_for("index", month=month))
-
-        except (ValueError, InvalidOperation) as e:
-            flash(f"Erro ao adicionar conta: {e}")
-            return redirect(url_for("add_conta"))
-
-    selected_month = request.args.get("month", date.today().strftime("%Y-%m"))
-    return render_template_string(FORM_TEMPLATE,
-                                title="Adicionar Conta",
-                                subtitle="Preencha os dados da nova conta",
-                                categories=data_manager.categories,
-                                selected_month=selected_month,
-                                decimal_to_brl=decimal_to_brl)
-
-@app.route("/edit/<conta_id>", methods=["GET", "POST"])
-def edit_conta(conta_id):
-    conta = data_manager.get_conta_by_id(conta_id)
-    if not conta:
-        flash("Conta não encontrada!")
-        return redirect(url_for("index"))
-
-    if request.method == "POST":
-        try:
-            name = request.form.get("name", "").strip()
-            amount_str = request.form.get("amount", "").strip()
-            month = request.form.get("month", "").strip()
-            category = request.form.get("category", "Outros").strip()
-            notes = request.form.get("notes", "").strip()
-
-            if not name or not amount_str or not month:
-                flash("Nome, valor e mês são obrigatórios!")
-                return redirect(url_for("edit_conta", conta_id=conta_id))
-
-            amount_decimal = money_to_decimal(amount_str)
-
-            conta.name = name
-            conta.amount_decimal = amount_decimal
-            conta.month = month
-            conta.category = category
-            conta.notes = notes
-
-            data_manager.update_conta(conta)
-            flash("Conta atualizada com sucesso!")
-            return redirect(url_for("index", month=month))
-
-        except (ValueError, InvalidOperation) as e:
-            flash(f"Erro ao atualizar conta: {e}")
-            return redirect(url_for("edit_conta", conta_id=conta_id))
-
-    return render_template_string(FORM_TEMPLATE,
-                                title="Editar Conta",
-                                subtitle="Altere os dados da conta",
-                                conta=conta,
-                                categories=data_manager.categories,
-                                decimal_to_brl=decimal_to_brl)
-
-@app.route("/pay/<conta_id>")
-def mark_paid(conta_id):
-    conta = data_manager.get_conta_by_id(conta_id)
-    if not conta:
-        flash("Conta não encontrada!")
-        return redirect(url_for("index"))
-
-    conta.status = "paid"
-    conta.paid_at = datetime.now()
-    conta.paid_amount = conta.amount_decimal
-
-    data_manager.update_conta(conta)
-    flash("Conta marcada como paga!")
-    return redirect(url_for("index", month=conta.month))
-
-@app.route("/unpay/<conta_id>")
-def mark_pending(conta_id):
-    conta = data_manager.get_conta_by_id(conta_id)
-    if not conta:
-        flash("Conta não encontrada!")
-        return redirect(url_for("index"))
-
-    conta.status = "pending"
-    conta.paid_at = None
-    conta.paid_amount = None
-
-    data_manager.update_conta(conta)
-    flash("Pagamento desfeito!")
-    return redirect(url_for("index", month=conta.month))
-
-@app.route("/delete/<conta_id>")
-def delete_conta(conta_id):
-    conta = data_manager.get_conta_by_id(conta_id)
-    if not conta:
-        flash("Conta não encontrada!")
-        return redirect(url_for("index"))
-
-    month = conta.month
-    data_manager.delete_conta(conta_id)
-    flash("Conta excluída com sucesso!")
-    return redirect(url_for("index", month=month))
-
-@app.route("/add_category", methods=["GET", "POST"])
-def add_category():
-    # Sugestões de emojis (uma seleção prática como no WhatsApp)
-    suggestions = [
-        "💡","💧","🌐","🛒","💳","👸","🧾","🏠","🚗","🍽️","💊","🎓","💼","⚡","📱","🧰","🎮","🪙","🏥","🧾"
-    ]
-    if request.method == "POST":
-        name = (request.form.get("name") or "").strip()
-        icon = (request.form.get("icon") or "").strip() or "📂"
-        if not name:
-            return render_template_string(CAT_FORM_TEMPLATE, error="Nome da categoria é obrigatório.", name=name, icon=icon, suggestions=suggestions)
-        try:
-            new_cat = Category(name=name, icon=icon)
-            data_manager.add_category(new_cat)
-            flash(f"Categoria '{name}' adicionada com sucesso!")
-            # voltar para index (opção A)
-            return redirect(url_for("index"))
-        except ValueError as e:
-            return render_template_string(CAT_FORM_TEMPLATE, error=str(e), name=name, icon=icon, suggestions=suggestions)
-    # GET
-    return render_template_string(CAT_FORM_TEMPLATE, suggestions=suggestions, error=None, name="", icon="")
-
-@app.route("/api/summary")
-def api_summary():
-    try:
-        contas = data_manager.contas
-        total_contas = len(contas)
-        contas_pagas = sum(1 for c in contas if c.status == "paid")
-        contas_pendentes = total_contas - contas_pagas
-        valor_total = sum(c.amount_decimal for c in contas)
-        valor_pago = sum(c.paid_amount or c.amount_decimal for c in contas if c.status == "paid")
-        valor_pendente = valor_total - valor_pago
-
-        return jsonify({
-            "success": True,
-            "data": {
-                "total_contas": total_contas,
-                "contas_pagas": contas_pagas,
-                "contas_pendentes": contas_pendentes,
-                "valor_total": float(valor_total),
-                "valor_pago": float(valor_pago),
-                "valor_pendente": float(valor_pendente)
-            }
-        })
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
-
-# Incluir FORM_TEMPLATE aqui (copiado do original, para consistência)
 FORM_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -1436,5 +998,293 @@ FORM_TEMPLATE = """
 </html>
 """
 
+# ---------- Rotas (adaptadas para SQLAlchemy) ----------
+@app.route("/", methods=["GET"])
+def index():
+    sel_month = request.args.get("month") or date.today().strftime("%Y-%m")
+    sel_category_name = request.args.get("category") or "Todos"
+    q_search = (request.args.get("q") or "").strip().lower()
+
+    # Gera recorrências para o mês selecionado e para o mês atual
+    try:
+        ensure_recurring_for_month(sel_month)
+        ensure_recurring_for_month(date.today().strftime("%Y-%m"))
+    except Exception as e:
+        flash(f"Erro ao gerar recorrências: {e}")
+
+    # Query inicial: contas filtradas pelo mês
+    query = ContaModel.query.filter(ContaModel.month == sel_month)
+    if sel_category_name != "Todos":
+        query = query.filter(ContaModel.category == sel_category_name)
+    if q_search:
+        query = query.filter(ContaModel.name.ilike(f"%{q_search}%"))
+
+    filtered_contas = query.order_by(ContaModel.created_at.desc()).all()
+
+    contas_data = []
+    for conta in filtered_contas:
+        cat = Category.query.filter_by(name=conta.category).first()
+        category_icon = cat.icon if cat else "📂"
+        category_color = color_for_category(conta.category or DEFAULT_EXTRA_CATEGORY_DATA["name"])
+        contas_data.append({
+            'id': conta.id,
+            'name': conta.name,
+            'amount_formatted': decimal_to_brl(Decimal(conta.amount_decimal or 0)),
+            'amount_decimal': Decimal(conta.amount_decimal or 0),
+            'month': conta.month,
+            'category': conta.category,
+            'category_icon': category_icon,
+            'category_color': category_color,
+            'notes': conta.notes,
+            'status': conta.status,
+            'paid_at': conta.paid_at,
+            'paid_amount': Decimal(conta.paid_amount) if conta.paid_amount is not None else None,
+            'recorrente': conta.recorrente,
+            'rec_type': conta.rec_type,
+            'recorrencia_months': conta.recorrencia_months,
+            'parcelada': conta.parcelada,
+            'parcel_index': conta.parcel_index,
+            'parcel_total': conta.parcel_total
+        })
+
+    pending_count = sum(1 for c in contas_data if c['status'] == 'pending')
+    paid_count = sum(1 for c in contas_data if c['status'] == 'paid')
+    total_amount = sum(c['amount_decimal'] for c in contas_data) if contas_data else Decimal("0.00")
+    valor_pago = sum(c['paid_amount'] or c['amount_decimal'] for c in contas_data if c['status'] == 'paid') if contas_data else Decimal("0.00")
+
+    summary = {
+        'pending_count': pending_count,
+        'paid_count': paid_count,
+        'total_amount': decimal_to_brl(total_amount),
+        'valor_pago': decimal_to_brl(valor_pago)
+    }
+
+    categories = Category.query.order_by(Category.name).all()
+
+    return render_template_string(HTML_TEMPLATE,
+                                contas=contas_data,
+                                categories=categories,
+                                selected_month=sel_month,
+                                selected_category=sel_category_name,
+                                search_query=request.args.get("q", ""),
+                                summary=summary,
+                                decimal_to_brl=decimal_to_brl)
+
+@app.route("/add", methods=["GET", "POST"])
+def add_conta():
+    if request.method == "POST":
+        try:
+            name = request.form.get("name", "").strip()
+            amount_str = request.form.get("amount", "").strip()
+            month = request.form.get("month", "").strip()
+            category = request.form.get("category", DEFAULT_EXTRA_CATEGORY_DATA["name"]).strip()
+            notes = request.form.get("notes", "").strip()
+
+            recorrente = bool(request.form.get("recorrente"))
+            rec_type = request.form.get("rec_type") if recorrente else None
+            recorrencia_months = int(request.form.get("recorrencia_months", 0) or 0) if recorrente else 0
+
+            parcelada = bool(request.form.get("parcelada"))
+            parcelas = int(request.form.get("parcelas", 1) or 1) if parcelada else 1
+
+            if not name or not amount_str or not month:
+                flash("Nome, valor e mês são obrigatórios!")
+                return redirect(url_for("add_conta"))
+
+            amount_decimal = money_to_decimal(amount_str)
+
+            if parcelada and parcelas > 1:
+                installment_amounts = split_amount_into_installments(amount_decimal, parcelas)
+                base_month_date = parse_month_input(month)
+                for i, installment_amount in enumerate(installment_amounts):
+                    installment_month_date = add_months(base_month_date, i)
+                    installment_month = month_key_from_date(installment_month_date)
+                    conta = ContaModel(
+                        id=str(uuid.uuid4()),
+                        name=f"{name} ({i+1}/{parcelas})",
+                        amount_decimal=installment_amount,
+                        month=installment_month,
+                        category=category,
+                        notes=notes,
+                        recorrente=recorrente,
+                        rec_type=rec_type,
+                        recorrencia_months=recorrencia_months,
+                        parcelada=True,
+                        parcelas=parcelas,
+                        parcel_index=i+1,
+                        parcel_total=parcelas
+                    )
+                    db.session.add(conta)
+                db.session.commit()
+                flash(f"Conta parcelada adicionada com sucesso! ({parcelas} parcelas)")
+            else:
+                conta = ContaModel(
+                    id=str(uuid.uuid4()),
+                    name=name,
+                    amount_decimal=amount_decimal,
+                    month=month,
+                    category=category,
+                    notes=notes,
+                    recorrente=recorrente,
+                    rec_type=rec_type,
+                    recorrencia_months=recorrencia_months,
+                    parcelada=False,
+                    parcelas=1
+                )
+                db.session.add(conta)
+                db.session.commit()
+                flash("Conta adicionada com sucesso!")
+
+            return redirect(url_for("index", month=month))
+
+        except (ValueError, InvalidOperation) as e:
+            flash(f"Erro ao adicionar conta: {e}")
+            return redirect(url_for("add_conta"))
+
+    selected_month = request.args.get("month", date.today().strftime("%Y-%m"))
+    categories = Category.query.order_by(Category.name).all()
+    return render_template_string(FORM_TEMPLATE,
+                                title="Adicionar Conta",
+                                subtitle="Preencha os dados da nova conta",
+                                categories=categories,
+                                selected_month=selected_month,
+                                decimal_to_brl=decimal_to_brl)
+
+@app.route("/edit/<conta_id>", methods=["GET", "POST"])
+def edit_conta(conta_id):
+    conta = ContaModel.query.get(conta_id)
+    if not conta:
+        flash("Conta não encontrada!")
+        return redirect(url_for("index"))
+
+    if request.method == "POST":
+        try:
+            name = request.form.get("name", "").strip()
+            amount_str = request.form.get("amount", "").strip()
+            month = request.form.get("month", "").strip()
+            category = request.form.get("category", DEFAULT_EXTRA_CATEGORY_DATA["name"]).strip()
+            notes = request.form.get("notes", "").strip()
+
+            if not name or not amount_str or not month:
+                flash("Nome, valor e mês são obrigatórios!")
+                return redirect(url_for("edit_conta", conta_id=conta_id))
+
+            amount_decimal = money_to_decimal(amount_str)
+
+            conta.name = name
+            conta.amount_decimal = amount_decimal
+            conta.month = month
+            conta.category = category
+            conta.notes = notes
+
+            db.session.commit()
+            flash("Conta atualizada com sucesso!")
+            return redirect(url_for("index", month=month))
+
+        except (ValueError, InvalidOperation) as e:
+            flash(f"Erro ao atualizar conta: {e}")
+            return redirect(url_for("edit_conta", conta_id=conta_id))
+
+    categories = Category.query.order_by(Category.name).all()
+    return render_template_string(FORM_TEMPLATE,
+                                title="Editar Conta",
+                                subtitle="Altere os dados da conta",
+                                conta=conta,
+                                categories=categories,
+                                decimal_to_brl=decimal_to_brl)
+
+@app.route("/pay/<conta_id>")
+def mark_paid(conta_id):
+    conta = ContaModel.query.get(conta_id)
+    if not conta:
+        flash("Conta não encontrada!")
+        return redirect(url_for("index"))
+
+    conta.status = "paid"
+    conta.paid_at = datetime.now()
+    conta.paid_amount = conta.amount_decimal
+
+    db.session.commit()
+    flash("Conta marcada como paga!")
+    return redirect(url_for("index", month=conta.month))
+
+@app.route("/unpay/<conta_id>")
+def mark_pending(conta_id):
+    conta = ContaModel.query.get(conta_id)
+    if not conta:
+        flash("Conta não encontrada!")
+        return redirect(url_for("index"))
+
+    conta.status = "pending"
+    conta.paid_at = None
+    conta.paid_amount = None
+
+    db.session.commit()
+    flash("Pagamento desfeito!")
+    return redirect(url_for("index", month=conta.month))
+
+@app.route("/delete/<conta_id>")
+def delete_conta(conta_id):
+    conta = ContaModel.query.get(conta_id)
+    if not conta:
+        flash("Conta não encontrada!")
+        return redirect(url_for("index"))
+
+    month = conta.month
+    db.session.delete(conta)
+    db.session.commit()
+    flash("Conta excluída com sucesso!")
+    return redirect(url_for("index", month=month))
+
+@app.route("/add_category", methods=["GET", "POST"])
+def add_category():
+    suggestions = [
+        "💡","💧","🌐","🛒","💳","👸","🧾","🏠","🚗","🍽️","💊","🎓","💼","⚡","📱","🧰","🎮","🪙","🏥","🧾"
+    ]
+    if request.method == "POST":
+        name = (request.form.get("name") or "").strip()
+        icon = (request.form.get("icon") or "").strip() or "📂"
+        if not name:
+            return render_template_string(CAT_FORM_TEMPLATE, error="Nome da categoria é obrigatório.", name=name, icon=icon, suggestions=suggestions)
+        existing = Category.query.filter(db.func.lower(Category.name) == name.lower()).first()
+        if existing:
+            return render_template_string(CAT_FORM_TEMPLATE, error=f"Categoria '{name}' já existe.", name=name, icon=icon, suggestions=suggestions)
+        try:
+            new_cat = Category(name=name, icon=icon)
+            db.session.add(new_cat)
+            db.session.commit()
+            flash(f"Categoria '{name}' adicionada com sucesso!")
+            return redirect(url_for("index"))
+        except Exception as e:
+            return render_template_string(CAT_FORM_TEMPLATE, error=str(e), name=name, icon=icon, suggestions=suggestions)
+    return render_template_string(CAT_FORM_TEMPLATE, suggestions=suggestions, error=None, name="", icon="")
+
+@app.route("/api/summary")
+def api_summary():
+    try:
+        contas = ContaModel.query.all()
+        total_contas = len(contas)
+        contas_pagas = sum(1 for c in contas if c.status == "paid")
+        contas_pendentes = total_contas - contas_pagas
+        valor_total = sum((Decimal(c.amount_decimal or 0) for c in contas), Decimal("0.00"))
+        valor_pago = sum((Decimal(c.paid_amount or c.amount_decimal or 0) for c in contas if c.status == "paid"), Decimal("0.00"))
+        valor_pendente = valor_total - valor_pago
+
+        return jsonify({
+            "success": True,
+            "data": {
+                "total_contas": total_contas,
+                "contas_pagas": contas_pagas,
+                "contas_pendentes": contas_pendentes,
+                "valor_total": float(valor_total),
+                "valor_pago": float(valor_pago),
+                "valor_pendente": float(valor_pendente)
+            }
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+# ---------- Rodando ----------
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    # Em produção no Render, debug deve ficar desligado
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
