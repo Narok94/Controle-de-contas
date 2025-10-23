@@ -1,14 +1,17 @@
-# app.py — Versão completa com PostgreSQL (SQLAlchemy) e templates inline
-# Requisitos: Flask, Flask-SQLAlchemy, psycopg2-binary
-
+# app_new.py — Versão com sistema de autenticação e controle de grupos
 from flask import Flask, request, redirect, url_for, flash, render_template_string, jsonify
-from flask_sqlalchemy import SQLAlchemy
+from flask_login import login_required, current_user
 import os
 import uuid
 import calendar
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from datetime import datetime, date
 import hashlib
+
+# Importa os novos módulos
+from models import db, User, Group, Category, ContaModel
+from auth import auth_bp, init_login_manager, create_admin_user, create_default_group
+from admin import admin_bp
 
 # ---------- Configuração do app ----------
 app = Flask(__name__)
@@ -27,7 +30,13 @@ if DATABASE_URL.startswith("postgres://"):
 app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
-db = SQLAlchemy(app)
+# Inicializa extensões
+db.init_app(app)
+login_manager = init_login_manager(app)
+
+# Registra blueprints
+app.register_blueprint(auth_bp)
+app.register_blueprint(admin_bp)
 
 # ---------- Constantes (categorias padrão) ----------
 FIXED_CATEGORIES_DATA = [
@@ -123,63 +132,37 @@ def hsl_to_hex(h, s, l):
     b = int((b1 + m) * 255)
     return '#{:02x}{:02x}{:02x}'.format(r, g, b)
 
-# ---------- Models ----------
-class Category(db.Model):
-    __tablename__ = "categories"
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(200), unique=True, nullable=False)
-    icon = db.Column(db.String(10), nullable=False, default="📂")
+def get_user_accessible_contas(user, month_key=None, category_filter=None, search_query=None):
+    """Retorna contas que o usuário pode acessar baseado em seus grupos"""
+    query = ContaModel.query
+    
+    if not user.is_admin:
+        # Usuários não-admin só veem contas dos seus grupos
+        user_group_ids = [group.id for group in user.groups]
+        if not user_group_ids:
+            # Se não tem grupos, não vê nenhuma conta
+            return []
+        query = query.filter(ContaModel.group_id.in_(user_group_ids))
+    
+    # Aplica filtros adicionais
+    if month_key:
+        query = query.filter(ContaModel.month == month_key)
+    if category_filter and category_filter != "Todos":
+        query = query.filter(ContaModel.category == category_filter)
+    if search_query:
+        query = query.filter(ContaModel.name.ilike(f"%{search_query}%"))
+    
+    return query.order_by(ContaModel.created_at.desc()).all()
 
-    def to_dict(self):
-        return {"name": self.name, "icon": self.icon}
-
-class ContaModel(db.Model):
-    __tablename__ = "contas"
-    id = db.Column(db.String(64), primary_key=True)
-    name = db.Column(db.String(300), nullable=False)
-    amount_decimal = db.Column(db.Numeric(14, 2), nullable=False, default=0)
-    month = db.Column(db.String(7), nullable=False)  # YYYY-MM
-    category = db.Column(db.String(200), nullable=False, default=DEFAULT_EXTRA_CATEGORY_DATA["name"])
-    notes = db.Column(db.Text, nullable=True)
-    status = db.Column(db.String(20), nullable=False, default="pending")
-    paid_at = db.Column(db.DateTime, nullable=True)
-    paid_amount = db.Column(db.Numeric(14, 2), nullable=True)
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-    recorrente = db.Column(db.Boolean, nullable=False, default=False)
-    rec_type = db.Column(db.String(20), nullable=True)
-    recorrencia_months = db.Column(db.Integer, nullable=False, default=0)
-    rec_origin = db.Column(db.String(64), nullable=True)
-    parcelada = db.Column(db.Boolean, nullable=False, default=False)
-    parcelas = db.Column(db.Integer, nullable=False, default=1)
-    parcel_index = db.Column(db.Integer, nullable=True)
-    parcel_total = db.Column(db.Integer, nullable=True)
-
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "name": self.name,
-            "amount_decimal": Decimal(self.amount_decimal or 0),
-            "month": self.month,
-            "category": self.category,
-            "notes": self.notes,
-            "status": self.status,
-            "paid_at": self.paid_at,
-            "paid_amount": Decimal(self.paid_amount) if self.paid_amount is not None else None,
-            "created_at": self.created_at,
-            "recorrente": bool(self.recorrente),
-            "rec_type": self.rec_type,
-            "recorrencia_months": int(self.recorrencia_months or 0),
-            "rec_origin": self.rec_origin,
-            "parcelada": bool(self.parcelada),
-            "parcelas": int(self.parcelas or 1),
-            "parcel_index": self.parcel_index,
-            "parcel_total": self.parcel_total,
-        }
-
-# ---------- Banco: criação e inserção categorias padrão ----------
+# ---------- Banco: criação e inserção de dados padrão ----------
 with app.app_context():
     db.create_all()
-    # inserir categorias padrão se tabela vazia
+    
+    # Cria usuário admin e grupo padrão
+    create_admin_user()
+    default_group = create_default_group()
+    
+    # Inserir categorias padrão se tabela vazia
     if Category.query.count() == 0:
         default_list = [Category(name=c["name"], icon=c.get("icon", "📂")) for c in FIXED_CATEGORIES_DATA]
         default_list.append(Category(name=DEFAULT_EXTRA_CATEGORY_DATA["name"], icon=DEFAULT_EXTRA_CATEGORY_DATA["icon"]))
@@ -187,13 +170,20 @@ with app.app_context():
         db.session.commit()
 
 # ---------- Função para garantir recorrências no mês (versão DB) ----------
-def ensure_recurring_for_month(month_key):
+def ensure_recurring_for_month(month_key, user_groups=None):
     """
     Replica a lógica antiga: para cada conta de origem (rec_type in inde/fixed)
     cria instâncias no mês alvo caso não existam.
+    Agora considera apenas contas dos grupos do usuário.
     """
     try:
-        origin_contas = ContaModel.query.filter(ContaModel.rec_type.in_(["indef", "fixed"])).all()
+        query = ContaModel.query.filter(ContaModel.rec_type.in_(["indef", "fixed"]))
+        
+        # Se não é admin, filtra por grupos do usuário
+        if user_groups is not None:
+            query = query.filter(ContaModel.group_id.in_(user_groups))
+            
+        origin_contas = query.all()
     except Exception:
         origin_contas = []
 
@@ -239,7 +229,9 @@ def ensure_recurring_for_month(month_key):
                     rec_type="indef",
                     rec_origin=origin_conta.id,
                     parcelada=False,
-                    parcelas=1
+                    parcelas=1,
+                    group_id=origin_conta.group_id,
+                    created_by=origin_conta.created_by
                 )
                 contas_to_add.append(new_conta)
         elif rec_type == "fixed" and rec_months > 0:
@@ -287,7 +279,9 @@ def ensure_recurring_for_month(month_key):
                         recorrencia_months=rec_months,
                         rec_origin=origin_conta.id,
                         parcelada=False,
-                        parcelas=1
+                        parcelas=1,
+                        group_id=origin_conta.group_id,
+                        created_by=origin_conta.created_by
                     )
                     contas_to_add.append(new_conta)
 
@@ -295,13 +289,7 @@ def ensure_recurring_for_month(month_key):
         db.session.bulk_save_objects(contas_to_add)
         db.session.commit()
 
-# Garantir recorrências para o mês atual ao iniciar a aplicação
-try:
-    ensure_recurring_for_month(date.today().strftime("%Y-%m"))
-except Exception as e:
-    print(f"Erro ao gerar recorrências iniciais: {e}")
-
-# ---------- Templates (inline: copiados do seu app original) ----------
+# ---------- Templates (atualizados com botão de gerenciamento) ----------
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -330,10 +318,43 @@ HTML_TEMPLATE = """
             background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
             color: white;
             padding: 12px 20px;
-            text-align: center;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
-        .header h1 { font-size: 1.5rem; margin-bottom:3px; font-weight:300; }
-        .header p { font-size: 0.85rem; opacity:0.9; }
+        .header-left h1 { font-size: 1.5rem; margin-bottom:3px; font-weight:300; }
+        .header-left p { font-size: 0.85rem; opacity:0.9; }
+        .header-right {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .user-info {
+            font-size: 0.8rem;
+            opacity: 0.9;
+            margin-right: 15px;
+        }
+        .user-info .username {
+            font-weight: 600;
+        }
+        .user-info .groups {
+            font-size: 0.7rem;
+            opacity: 0.8;
+        }
+        .btn-header {
+            padding: 6px 12px;
+            border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 6px;
+            color: white;
+            text-decoration: none;
+            font-size: 0.75rem;
+            font-weight: 600;
+            transition: all 0.2s ease;
+        }
+        .btn-header:hover {
+            background: rgba(255,255,255,0.1);
+            transform: translateY(-1px);
+        }
         .content { padding: 12px; }
 
         .filters {
@@ -357,14 +378,13 @@ HTML_TEMPLATE = """
 
         .summary { display:grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap:10px; margin-bottom:12px; }
 
-        /* Cada card com fundo suave verde (#effff2) */
         .summary-card {
-             background: #3245562A; /* azul do topo (~#2c3e50) clareado com transparência */
+             background: #3245562A;
     padding: 10px;
     border-radius: 8px;
     box-shadow: 0 4px 12px rgba(0,0,0,0.06);
-    border-left: 3px solid; /* mantém as cores de status */
-    transition: transform 0.2s ease;;
+    border-left: 3px solid;
+    transition: transform 0.2s ease;
         }
         .summary-card:hover { transform: translateY(-2px); }
         .summary-card.pending { border-left-color: #ff6b6b; }
@@ -375,23 +395,23 @@ HTML_TEMPLATE = """
         .summary-card .value { font-size:1.2rem; font-weight:bold; color:#2c3e50; }
 
         .accounts-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap:10px; }
-        .account-card { background: #ffffff; /* default, vai ser sobrescrito abaixo */
-    border-radius: 8px;
-    padding: 10px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-    position: relative;
-    border-left: none !important;
-    transition: background-color 0.2s ease;
-}
+        .account-card { 
+            background: #ffffff;
+            border-radius: 8px;
+            padding: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            position: relative;
+            border-left: none !important;
+            transition: background-color 0.2s ease;
+        }
 
-/* Conta pendente = vermelho clarinho */
-.account-card.pending {
-    background: rgba(255, 0, 0, 0.06); /* #ff0000 com transparência ~6% */
-}
+        .account-card.pending {
+            background: rgba(255, 0, 0, 0.06);
+        }
 
-/* Conta paga = verde clarinho */
-.account-card.paid {
-    background: rgba(0, 128, 0, 0.06); /* #008000 com transparência ~6% */; }
+        .account-card.paid {
+            background: rgba(0, 128, 0, 0.06);
+        }
         .account-title { font-size:0.95rem; font-weight:bold; color:#2c3e50; margin-bottom:4px; line-height:1.2; padding-right:60px; }
         .account-category { display:inline-flex; align-items:center; padding:2px 6px; border-radius:10px; font-size:0.65rem; font-weight:600; color:white; margin-bottom:6px; }
         .account-amount { font-size:1.1rem; font-weight:bold; color:#2c3e50; margin-bottom:6px; }
@@ -405,14 +425,12 @@ HTML_TEMPLATE = """
 
         .notes { margin-top:6px; color:#666; font-style:italic; font-size:0.75rem; line-height:1.3; }
 
-        /* Flash messages com botão fechar */
         .flash-messages { margin-bottom:10px; }
         .flash-message { padding:8px 12px; border-radius:6px; margin-bottom:6px; font-weight:500; font-size:0.8rem; position:relative; display:flex; align-items:center; justify-content:space-between; }
         .flash-success { background:#d4edda; color:#155724; border:1px solid #c3e6cb; }
         .flash-error { background:#f8d7da; color:#721c24; border:1px solid #f5c6cb; }
         .flash-close { background:transparent; border:none; font-weight:700; cursor:pointer; font-size:14px; padding:4px 6px; color:inherit; }
 
-        /* Botões flutuantes: adicionar conta (laranja) e nova categoria (verde) lado a lado */
         .floating-group { position: fixed; bottom: 20px; right: 20px; display: flex; gap: 12px; z-index: 1000; }
         .add-account-btn {
             width:56px; height:56px; border-radius:50%; background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%); color:white; border:none; font-size:24px; font-weight:300; cursor:pointer; box-shadow:0 8px 20px rgba(255,107,53,0.4); display:flex; align-items:center; justify-content:center; text-decoration:none; overflow:hidden;
@@ -426,6 +444,8 @@ HTML_TEMPLATE = """
         @media (max-width:768px){
             .container { margin:5px; border-radius:10px; }
             .content { padding:10px; }
+            .header { flex-direction: column; gap: 10px; text-align: center; }
+            .header-right { justify-content: center; }
             .add-account-btn { bottom:15px; right:15px; width:50px; height:50px; font-size:20px; }
             .add-category-btn { width:50px; height:50px; font-size:18px; }
             .filters { grid-template-columns:1fr; gap:6px; }
@@ -439,8 +459,22 @@ HTML_TEMPLATE = """
 <body>
     <div class="container">
         <div class="header">
-            <h1>💰 Organizador de Contas</h1>
-            <p>Gerencie suas finanças de forma inteligente</p>
+            <div class="header-left">
+                <h1>💰 Organizador de Contas</h1>
+                <p>Gerencie suas finanças de forma inteligente</p>
+            </div>
+            <div class="header-right">
+                <div class="user-info">
+                    <div class="username">👤 {{ current_user.username }}</div>
+                    {% if current_user.groups %}
+                        <div class="groups">Grupos: {{ current_user.get_group_names()|join(', ') }}</div>
+                    {% endif %}
+                </div>
+                {% if current_user.is_admin %}
+                    <a href="{{ url_for('admin.manage') }}" class="btn-header">👥 Gerenciar Usuários</a>
+                {% endif %}
+                <a href="{{ url_for('auth.logout') }}" class="btn-header">🚪 Sair</a>
+            </div>
         </div>
 
         <div class="content">
@@ -528,6 +562,12 @@ HTML_TEMPLATE = """
                                 <div class="meta-label">Mês</div>
                                 <div class="meta-value">{{ conta.month }}</div>
                             </div>
+                            {% if conta.group_name %}
+                                <div class="meta-item">
+                                    <div class="meta-label">Grupo</div>
+                                    <div class="meta-value">{{ conta.group_name }}</div>
+                                </div>
+                            {% endif %}
                             {% if conta.paid_at %}
                                 <div class="meta-item">
                                     <div class="meta-label">Pago em</div>
@@ -561,17 +601,19 @@ HTML_TEMPLATE = """
                         </div>
 
                         <div class="account-actions">
-                            <a href="{{ url_for('edit_conta', conta_id=conta.id) }}" class="btn btn-primary">Editar</a>
+                            {% if current_user.is_admin or current_user.can_access_conta(conta) %}
+                                <a href="{{ url_for('edit_conta', conta_id=conta.id) }}" class="btn btn-primary">Editar</a>
 
-                            {% if conta.status == 'pending' %}
-                                <a href="{{ url_for('mark_paid', conta_id=conta.id) }}" class="btn btn-success">Pagar</a>
-                            {% else %}
-                                <a href="{{ url_for('mark_pending', conta_id=conta.id) }}" class="btn btn-warning">Desfazer</a>
+                                {% if conta.status == 'pending' %}
+                                    <a href="{{ url_for('mark_paid', conta_id=conta.id) }}" class="btn btn-success">Pagar</a>
+                                {% else %}
+                                    <a href="{{ url_for('mark_pending', conta_id=conta.id) }}" class="btn btn-warning">Desfazer</a>
+                                {% endif %}
+
+                                <a href="{{ url_for('delete_conta', conta_id=conta.id) }}" 
+                                   class="btn btn-danger" 
+                                   onclick="return confirm('Tem certeza que deseja excluir esta conta?')">Excluir</a>
                             {% endif %}
-
-                            <a href="{{ url_for('delete_conta', conta_id=conta.id) }}" 
-                               class="btn btn-danger" 
-                               onclick="return confirm('Tem certeza que deseja excluir esta conta?')">Excluir</a>
                         </div>
                     </div>
                 {% endfor %}
@@ -615,83 +657,7 @@ HTML_TEMPLATE = """
 </html>
 """
 
-CAT_FORM_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Nova Categoria</title>
-    <style>
-        * { box-sizing: border-box; margin:0; padding:0; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: linear-gradient(135deg,#667eea 0%, #764ba2 100%); min-height:100vh; padding:16px; }
-        .card { max-width:680px; margin: 0 auto; background:white; padding:20px; border-radius:12px; box-shadow:0 12px 30px rgba(0,0,0,0.12); }
-        h1 { font-weight:300; margin-bottom:6px; }
-        p { color:#666; margin-bottom:12px; }
-        .form-group { margin-bottom:12px; display:flex; flex-direction:column; }
-        label { font-weight:600; margin-bottom:6px; color:#2c3e50; }
-        input[type="text"] { padding:10px; border:1px solid #e9ecef; border-radius:8px; font-size:14px; }
-        .emoji-row { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
-        .emoji-sugg { width:44px; height:44px; display:flex; align-items:center; justify-content:center; border-radius:8px; cursor:pointer; font-size:20px; border:1px solid transparent; transition:all 0.12s ease; }
-        .emoji-sugg:hover { transform:translateY(-3px); box-shadow:0 6px 18px rgba(0,0,0,0.08); border-color:#eee; }
-        .actions { display:flex; gap:10px; margin-top:14px; }
-        .btn { padding:10px 16px; border-radius:8px; border:none; cursor:pointer; font-weight:600; }
-        .btn-primary { background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%); color:white; }
-        .btn-secondary { background:#6c757d; color:white; }
-        .hint { font-size:13px; color:#666; margin-top:6px; }
-        .flash { margin-bottom:12px; padding:10px 12px; border-radius:8px; background:#f8d7da; color:#721c24; border:1px solid #f5c6cb; }
-    </style>
-</head>
-<body>
-    <div class="card">
-        <h1>➕ Nova Categoria</h1>
-        <p>Crie uma nova categoria com nome e emoji. O emoji pode ser colado, digitado ou escolhido nas sugestões abaixo.</p>
-
-        {% if error %}
-            <div class="flash">{{ error }}</div>
-        {% endif %}
-
-        <form method="POST">
-            <div class="form-group">
-                <label for="name">Nome da Categoria *</label>
-                <input id="name" name="name" type="text" required value="{{ name or '' }}" placeholder="Ex: Academia">
-            </div>
-
-            <div class="form-group">
-                <label for="icon">Emoji</label>
-                <input id="icon" name="icon" type="text" value="{{ icon or '' }}" placeholder="Cole ou digite um emoji (ex: 💪)">
-                <div class="hint">Dica: em celulares use o teclado de emojis. No desktop, copie & cole o emoji desejado.</div>
-
-                <div class="emoji-row" id="emoji-row" aria-hidden="false">
-                    {% for e in suggestions %}
-                        <div class="emoji-sugg" data-emoji="{{ e }}">{{ e }}</div>
-                    {% endfor %}
-                </div>
-            </div>
-
-            <div class="actions">
-                <button type="submit" class="btn btn-primary">Salvar Categoria</button>
-                <a href="{{ url_for('index') }}" class="btn btn-secondary" style="text-decoration:none; display:inline-flex; align-items:center; justify-content:center;">Cancelar</a>
-            </div>
-        </form>
-    </div>
-
-    <script>
-        document.addEventListener('click', function(e){
-            if(e.target && e.target.classList.contains('emoji-sugg')){
-                const val = e.target.getAttribute('data-emoji') || '';
-                const iconInput = document.getElementById('icon');
-                if(iconInput){
-                    iconInput.value = val;
-                    iconInput.focus();
-                }
-            }
-        });
-    </script>
-</body>
-</html>
-"""
-
+# Template de formulário atualizado com seleção de grupo
 FORM_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -901,6 +867,29 @@ FORM_TEMPLATE = """
                         </select>
                     </div>
 
+                    {% if current_user.is_admin or current_user.groups|length > 1 %}
+                    <div class="form-group">
+                        <label for="group_id">Grupo</label>
+                        <select id="group_id" name="group_id" required>
+                            {% if current_user.is_admin %}
+                                {% for group in all_groups %}
+                                    <option value="{{ group.id }}" 
+                                            {% if (conta and conta.group_id == group.id) or (not conta and group.name == 'Geral') %}selected{% endif %}>
+                                        {{ group.name }}
+                                    </option>
+                                {% endfor %}
+                            {% else %}
+                                {% for group in current_user.groups %}
+                                    <option value="{{ group.id }}" 
+                                            {% if (conta and conta.group_id == group.id) or (not conta and loop.first) %}selected{% endif %}>
+                                        {{ group.name }}
+                                    </option>
+                                {% endfor %}
+                            {% endif %}
+                        </select>
+                    </div>
+                    {% endif %}
+
                     <div class="form-group" style="grid-column: 1 / -1;">
                         <label for="notes">Observações</label>
                         <textarea id="notes" name="notes" placeholder="Observações opcionais...">{{ conta.notes if conta else '' }}</textarea>
@@ -984,11 +973,11 @@ FORM_TEMPLATE = """
         const amountInput = document.getElementById('amount');
         if(amountInput){
             amountInput.addEventListener('input', function(e) {
-                let value = e.target.value.replace(/\D/g, '');
+                let value = e.target.value.replace(/\\D/g, '');
                 if (value.length > 0) {
                     value = (parseInt(value) / 100).toFixed(2);
                     value = value.replace('.', ',');
-                    value = value.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+                    value = value.replace(/\\B(?=(\\d{3})+(?!\\d))/g, '.');
                     e.target.value = 'R$ ' + value;
                 }
             });
@@ -998,8 +987,87 @@ FORM_TEMPLATE = """
 </html>
 """
 
-# ---------- Rotas (adaptadas para SQLAlchemy) ----------
+# Template de categoria (mantido igual)
+CAT_FORM_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Nova Categoria</title>
+    <style>
+        * { box-sizing: border-box; margin:0; padding:0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: linear-gradient(135deg,#667eea 0%, #764ba2 100%); min-height:100vh; padding:16px; }
+        .card { max-width:680px; margin: 0 auto; background:white; padding:20px; border-radius:12px; box-shadow:0 12px 30px rgba(0,0,0,0.12); }
+        h1 { font-weight:300; margin-bottom:6px; }
+        p { color:#666; margin-bottom:12px; }
+        .form-group { margin-bottom:12px; display:flex; flex-direction:column; }
+        label { font-weight:600; margin-bottom:6px; color:#2c3e50; }
+        input[type="text"] { padding:10px; border:1px solid #e9ecef; border-radius:8px; font-size:14px; }
+        .emoji-row { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+        .emoji-sugg { width:44px; height:44px; display:flex; align-items:center; justify-content:center; border-radius:8px; cursor:pointer; font-size:20px; border:1px solid transparent; transition:all 0.12s ease; }
+        .emoji-sugg:hover { transform:translateY(-3px); box-shadow:0 6px 18px rgba(0,0,0,0.08); border-color:#eee; }
+        .actions { display:flex; gap:10px; margin-top:14px; }
+        .btn { padding:10px 16px; border-radius:8px; border:none; cursor:pointer; font-weight:600; }
+        .btn-primary { background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%); color:white; }
+        .btn-secondary { background:#6c757d; color:white; }
+        .hint { font-size:13px; color:#666; margin-top:6px; }
+        .flash { margin-bottom:12px; padding:10px 12px; border-radius:8px; background:#f8d7da; color:#721c24; border:1px solid #f5c6cb; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>➕ Nova Categoria</h1>
+        <p>Crie uma nova categoria com nome e emoji. O emoji pode ser colado, digitado ou escolhido nas sugestões abaixo.</p>
+
+        {% if error %}
+            <div class="flash">{{ error }}</div>
+        {% endif %}
+
+        <form method="POST">
+            <div class="form-group">
+                <label for="name">Nome da Categoria *</label>
+                <input id="name" name="name" type="text" required value="{{ name or '' }}" placeholder="Ex: Academia">
+            </div>
+
+            <div class="form-group">
+                <label for="icon">Emoji</label>
+                <input id="icon" name="icon" type="text" value="{{ icon or '' }}" placeholder="Cole ou digite um emoji (ex: 💪)">
+                <div class="hint">Dica: em celulares use o teclado de emojis. No desktop, copie & cole o emoji desejado.</div>
+
+                <div class="emoji-row" id="emoji-row" aria-hidden="false">
+                    {% for e in suggestions %}
+                        <div class="emoji-sugg" data-emoji="{{ e }}">{{ e }}</div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="actions">
+                <button type="submit" class="btn btn-primary">Salvar Categoria</button>
+                <a href="{{ url_for('index') }}" class="btn btn-secondary" style="text-decoration:none; display:inline-flex; align-items:center; justify-content:center;">Cancelar</a>
+            </div>
+        </form>
+    </div>
+
+    <script>
+        document.addEventListener('click', function(e){
+            if(e.target && e.target.classList.contains('emoji-sugg')){
+                const val = e.target.getAttribute('data-emoji') || '';
+                const iconInput = document.getElementById('icon');
+                if(iconInput){
+                    iconInput.value = val;
+                    iconInput.focus();
+                }
+            }
+        });
+    </script>
+</body>
+</html>
+"""
+
+# ---------- Rotas (adaptadas com controle de acesso) ----------
 @app.route("/", methods=["GET"])
+@login_required
 def index():
     sel_month = request.args.get("month") or date.today().strftime("%Y-%m")
     sel_category_name = request.args.get("category") or "Todos"
@@ -1007,25 +1075,27 @@ def index():
 
     # Gera recorrências para o mês selecionado e para o mês atual
     try:
-        ensure_recurring_for_month(sel_month)
-        ensure_recurring_for_month(date.today().strftime("%Y-%m"))
+        user_group_ids = [group.id for group in current_user.groups] if not current_user.is_admin else None
+        ensure_recurring_for_month(sel_month, user_group_ids)
+        ensure_recurring_for_month(date.today().strftime("%Y-%m"), user_group_ids)
     except Exception as e:
         flash(f"Erro ao gerar recorrências: {e}")
 
-    # Query inicial: contas filtradas pelo mês
-    query = ContaModel.query.filter(ContaModel.month == sel_month)
-    if sel_category_name != "Todos":
-        query = query.filter(ContaModel.category == sel_category_name)
-    if q_search:
-        query = query.filter(ContaModel.name.ilike(f"%{q_search}%"))
-
-    filtered_contas = query.order_by(ContaModel.created_at.desc()).all()
+    # Busca contas que o usuário pode acessar
+    filtered_contas = get_user_accessible_contas(current_user, sel_month, sel_category_name, q_search)
 
     contas_data = []
     for conta in filtered_contas:
         cat = Category.query.filter_by(name=conta.category).first()
         category_icon = cat.icon if cat else "📂"
         category_color = color_for_category(conta.category or DEFAULT_EXTRA_CATEGORY_DATA["name"])
+        
+        # Busca nome do grupo
+        group_name = None
+        if conta.group_id:
+            group = Group.query.get(conta.group_id)
+            group_name = group.name if group else None
+        
         contas_data.append({
             'id': conta.id,
             'name': conta.name,
@@ -1044,7 +1114,9 @@ def index():
             'recorrencia_months': conta.recorrencia_months,
             'parcelada': conta.parcelada,
             'parcel_index': conta.parcel_index,
-            'parcel_total': conta.parcel_total
+            'parcel_total': conta.parcel_total,
+            'group_name': group_name,
+            'group_id': conta.group_id
         })
 
     pending_count = sum(1 for c in contas_data if c['status'] == 'pending')
@@ -1068,9 +1140,11 @@ def index():
                                 selected_category=sel_category_name,
                                 search_query=request.args.get("q", ""),
                                 summary=summary,
-                                decimal_to_brl=decimal_to_brl)
+                                decimal_to_brl=decimal_to_brl,
+                                current_user=current_user)
 
 @app.route("/add", methods=["GET", "POST"])
+@login_required
 def add_conta():
     if request.method == "POST":
         try:
@@ -1079,6 +1153,7 @@ def add_conta():
             month = request.form.get("month", "").strip()
             category = request.form.get("category", DEFAULT_EXTRA_CATEGORY_DATA["name"]).strip()
             notes = request.form.get("notes", "").strip()
+            group_id = request.form.get("group_id", "").strip()
 
             recorrente = bool(request.form.get("recorrente"))
             rec_type = request.form.get("rec_type") if recorrente else None
@@ -1090,6 +1165,20 @@ def add_conta():
             if not name or not amount_str or not month:
                 flash("Nome, valor e mês são obrigatórios!")
                 return redirect(url_for("add_conta"))
+
+            # Verifica se o usuário pode criar contas no grupo selecionado
+            if not current_user.is_admin:
+                if not group_id or group_id not in [group.id for group in current_user.groups]:
+                    flash("Você não tem permissão para criar contas neste grupo!")
+                    return redirect(url_for("add_conta"))
+
+            # Se não especificou grupo e não é admin, usa o primeiro grupo do usuário
+            if not group_id and not current_user.is_admin and current_user.groups:
+                group_id = current_user.groups[0].id
+            elif not group_id and current_user.is_admin:
+                # Admin sem grupo especificado usa o grupo Geral
+                default_group = Group.query.filter_by(name='Geral').first()
+                group_id = default_group.id if default_group else None
 
             amount_decimal = money_to_decimal(amount_str)
 
@@ -1112,7 +1201,9 @@ def add_conta():
                         parcelada=True,
                         parcelas=parcelas,
                         parcel_index=i+1,
-                        parcel_total=parcelas
+                        parcel_total=parcelas,
+                        group_id=group_id,
+                        created_by=current_user.id
                     )
                     db.session.add(conta)
                 db.session.commit()
@@ -1129,7 +1220,9 @@ def add_conta():
                     rec_type=rec_type,
                     recorrencia_months=recorrencia_months,
                     parcelada=False,
-                    parcelas=1
+                    parcelas=1,
+                    group_id=group_id,
+                    created_by=current_user.id
                 )
                 db.session.add(conta)
                 db.session.commit()
@@ -1143,18 +1236,33 @@ def add_conta():
 
     selected_month = request.args.get("month", date.today().strftime("%Y-%m"))
     categories = Category.query.order_by(Category.name).all()
+    
+    # Busca grupos disponíveis para o usuário
+    if current_user.is_admin:
+        all_groups = Group.query.order_by(Group.name).all()
+    else:
+        all_groups = current_user.groups
+    
     return render_template_string(FORM_TEMPLATE,
                                 title="Adicionar Conta",
                                 subtitle="Preencha os dados da nova conta",
                                 categories=categories,
                                 selected_month=selected_month,
-                                decimal_to_brl=decimal_to_brl)
+                                decimal_to_brl=decimal_to_brl,
+                                current_user=current_user,
+                                all_groups=all_groups)
 
 @app.route("/edit/<conta_id>", methods=["GET", "POST"])
+@login_required
 def edit_conta(conta_id):
     conta = ContaModel.query.get(conta_id)
     if not conta:
         flash("Conta não encontrada!")
+        return redirect(url_for("index"))
+
+    # Verifica se o usuário pode editar esta conta
+    if not current_user.is_admin and not current_user.can_access_conta(conta):
+        flash("Você não tem permissão para editar esta conta!")
         return redirect(url_for("index"))
 
     if request.method == "POST":
@@ -1164,10 +1272,17 @@ def edit_conta(conta_id):
             month = request.form.get("month", "").strip()
             category = request.form.get("category", DEFAULT_EXTRA_CATEGORY_DATA["name"]).strip()
             notes = request.form.get("notes", "").strip()
+            group_id = request.form.get("group_id", "").strip()
 
             if not name or not amount_str or not month:
                 flash("Nome, valor e mês são obrigatórios!")
                 return redirect(url_for("edit_conta", conta_id=conta_id))
+
+            # Verifica permissão para alterar grupo
+            if group_id and not current_user.is_admin:
+                if group_id not in [group.id for group in current_user.groups]:
+                    flash("Você não tem permissão para mover esta conta para este grupo!")
+                    return redirect(url_for("edit_conta", conta_id=conta_id))
 
             amount_decimal = money_to_decimal(amount_str)
 
@@ -1176,6 +1291,9 @@ def edit_conta(conta_id):
             conta.month = month
             conta.category = category
             conta.notes = notes
+            
+            if group_id:
+                conta.group_id = group_id
 
             db.session.commit()
             flash("Conta atualizada com sucesso!")
@@ -1186,18 +1304,33 @@ def edit_conta(conta_id):
             return redirect(url_for("edit_conta", conta_id=conta_id))
 
     categories = Category.query.order_by(Category.name).all()
+    
+    # Busca grupos disponíveis para o usuário
+    if current_user.is_admin:
+        all_groups = Group.query.order_by(Group.name).all()
+    else:
+        all_groups = current_user.groups
+    
     return render_template_string(FORM_TEMPLATE,
                                 title="Editar Conta",
                                 subtitle="Altere os dados da conta",
                                 conta=conta,
                                 categories=categories,
-                                decimal_to_brl=decimal_to_brl)
+                                decimal_to_brl=decimal_to_brl,
+                                current_user=current_user,
+                                all_groups=all_groups)
 
 @app.route("/pay/<conta_id>")
+@login_required
 def mark_paid(conta_id):
     conta = ContaModel.query.get(conta_id)
     if not conta:
         flash("Conta não encontrada!")
+        return redirect(url_for("index"))
+
+    # Verifica se o usuário pode marcar esta conta como paga
+    if not current_user.is_admin and not current_user.can_access_conta(conta):
+        flash("Você não tem permissão para alterar esta conta!")
         return redirect(url_for("index"))
 
     conta.status = "paid"
@@ -1209,10 +1342,16 @@ def mark_paid(conta_id):
     return redirect(url_for("index", month=conta.month))
 
 @app.route("/unpay/<conta_id>")
+@login_required
 def mark_pending(conta_id):
     conta = ContaModel.query.get(conta_id)
     if not conta:
         flash("Conta não encontrada!")
+        return redirect(url_for("index"))
+
+    # Verifica se o usuário pode alterar esta conta
+    if not current_user.is_admin and not current_user.can_access_conta(conta):
+        flash("Você não tem permissão para alterar esta conta!")
         return redirect(url_for("index"))
 
     conta.status = "pending"
@@ -1224,10 +1363,16 @@ def mark_pending(conta_id):
     return redirect(url_for("index", month=conta.month))
 
 @app.route("/delete/<conta_id>")
+@login_required
 def delete_conta(conta_id):
     conta = ContaModel.query.get(conta_id)
     if not conta:
         flash("Conta não encontrada!")
+        return redirect(url_for("index"))
+
+    # Verifica se o usuário pode excluir esta conta
+    if not current_user.is_admin and not current_user.can_access_conta(conta):
+        flash("Você não tem permissão para excluir esta conta!")
         return redirect(url_for("index"))
 
     month = conta.month
@@ -1237,6 +1382,7 @@ def delete_conta(conta_id):
     return redirect(url_for("index", month=month))
 
 @app.route("/add_category", methods=["GET", "POST"])
+@login_required
 def add_category():
     suggestions = [
         "💡","💧","🌐","🛒","💳","👸","🧾","🏠","🚗","🍽️","💊","🎓","💼","⚡","📱","🧰","🎮","🪙","🏥","🧾"
@@ -1260,9 +1406,11 @@ def add_category():
     return render_template_string(CAT_FORM_TEMPLATE, suggestions=suggestions, error=None, name="", icon="")
 
 @app.route("/api/summary")
+@login_required
 def api_summary():
     try:
-        contas = ContaModel.query.all()
+        # Busca apenas contas que o usuário pode acessar
+        contas = get_user_accessible_contas(current_user)
         total_contas = len(contas)
         contas_pagas = sum(1 for c in contas if c.status == "paid")
         contas_pendentes = total_contas - contas_pagas
